@@ -253,6 +253,17 @@ Use the app at **http://localhost:3000**. The React dev server proxies `/api` re
 
 - http://localhost:3001 – Server status page  
 - http://localhost:3001/api/status – JSON with `usersCount`, `sessionsCount`, `geminiKeyConfigured`, and `youtubeApiKeyConfigured` (useful to verify the backend sees your API keys; use your deployed backend URL for production, e.g. `https://your-backend.onrender.com/api/status`)
+- http://localhost:3001/api/tools/generateImage/ping – quick image-tool health check (`{ "ok": true }`)
+
+### Manual image generation curl test
+
+```bash
+curl -X POST "http://localhost:3001/api/tools/generateImage" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"A simple watercolor illustration of a mountain at sunset"}'
+```
+
+Expected: JSON response with `imageBase64` (or a clear JSON error, never a hanging request).
 
 ## Dependencies
 

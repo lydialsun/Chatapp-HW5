@@ -108,8 +108,21 @@ export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) =
 // ── Image generation ────────────────────────────────────────────────────────
 
 export const generateImage = async (prompt, anchorImageBase64 = null, anchorMimeType = 'image/png') => {
-  return api('/api/tools/generateImage', {
-    method: 'POST',
-    body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
-  });
+  const controller = new AbortController();
+  const timeoutMs = 30000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await api('/api/tools/generateImage', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Image generation request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 };

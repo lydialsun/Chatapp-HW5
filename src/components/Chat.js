@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { streamChat, chatWithCsvTools, chatWithYouTubeTools, CODE_KEYWORDS } from '../services/gemini';
+import { streamChat, chatWithCsvTools, chatWithYouTubeTools } from '../services/gemini';
 import { parseCsvToRows, executeTool, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import { executeYouTubeTool } from '../services/youtubeTools';
 import {
@@ -439,13 +439,9 @@ export default function Chat({ user, onLogout }) {
       (images.length > 0 && /\b(generate|create|draw|style|transform|based on this)\b/i.test(text));
     const useYouTubeTools = videos.length > 0 || wantsImageGeneration;
 
-    const PYTHON_ONLY_KEYWORDS = /\b(regression|scatter|histogram|seaborn|matplotlib|numpy|time.?series|heatmap|box.?plot|violin|distribut|linear.?model|logistic|forecast|trend.?line)\b/i;
-    const wantPythonOnly = PYTHON_ONLY_KEYWORDS.test(text);
-    const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows;
     const capturedCsv = csvContext;
-    const needsBase64 = !!capturedCsv && wantPythonOnly;
-    const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && !useYouTubeTools;
-    const useCodeExecution = !useYouTubeTools && (wantPythonOnly || wantCode);
+    const needsBase64 = false;
+    const useTools = !!sessionCsvRows && !capturedCsv && !useYouTubeTools;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
     const userName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.username || '';
@@ -602,8 +598,8 @@ ${sessionSummary}${slimCsvBlock}
           )
         );
       } else {
-        // ── Streaming path: code execution or search ─────────────────────────
-        for await (const chunk of streamChat(history, promptForGemini, imageParts, useCodeExecution)) {
+        // ── Streaming path: plain text + search grounding (no code execution) ─
+        for await (const chunk of streamChat(history, promptForGemini, imageParts)) {
           if (abortRef.current) break;
           if (chunk.type === 'text') {
             fullContent += chunk.text;

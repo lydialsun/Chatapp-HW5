@@ -37,9 +37,6 @@ function trimText(s) {
 }
 
 const SEARCH_TOOL = { googleSearch: {} };
-const CODE_EXEC_TOOL = { codeExecution: {} };
-
-export const CODE_KEYWORDS = /\b(plot|chart|graph|analyz|statistic|regression|correlat|histogram|visualiz|calculat|compute|run code|write code|execute|pandas|numpy|matplotlib|csv|data)\b/i;
 
 let cachedPrompt = null;
 
@@ -56,20 +53,17 @@ async function loadSystemPrompt() {
 
 // Yields:
 //   { type: 'text', text }           — streaming text chunks
-//   { type: 'fullResponse', parts }  — when code was executed; replaces streamed text
+//   { type: 'fullResponse', parts }  — structured multimodal parts (e.g. images)
 //   { type: 'grounding', data }      — Google Search metadata
 //
 // fullResponse parts: { type: 'text'|'code'|'result'|'image', ... }
 //
-// useCodeExecution: pass true to use codeExecution tool (CSV/analysis),
-//                   false (default) to use googleSearch tool.
-// Note: Gemini does not support both tools simultaneously.
-export const streamChat = async function* (history, newMessage, imageParts = [], useCodeExecution = false) {
+// Note: no dynamic code execution is used in this app.
+export const streamChat = async function* (history, newMessage, imageParts = []) {
   const systemInstruction = await loadSystemPrompt();
-  const tools = useCodeExecution ? [CODE_EXEC_TOOL] : [SEARCH_TOOL];
   const model = genAI.getGenerativeModel({
     model: MODEL,
-    tools,
+    tools: [SEARCH_TOOL],
   });
 
   const baseHistory = trimHistory(history);
@@ -108,30 +102,12 @@ export const streamChat = async function* (history, newMessage, imageParts = [],
   const response = await result.response;
   const allParts = response.candidates?.[0]?.content?.parts || [];
 
-  const hasCodeExecution = allParts.some(
-    (p) =>
-      p.executableCode ||
-      p.codeExecutionResult ||
-      (p.inlineData && p.inlineData.mimeType?.startsWith('image/'))
-  );
-
-  if (hasCodeExecution) {
-    // Build ordered structured parts to replace the streamed text
+  const hasStructuredParts = allParts.some((p) => p.inlineData && p.inlineData.mimeType?.startsWith('image/'));
+  if (hasStructuredParts) {
+    // Build ordered structured parts to replace the streamed text (no code execution)
     const structuredParts = allParts
       .map((p) => {
         if (p.text) return { type: 'text', text: p.text };
-        if (p.executableCode)
-          return {
-            type: 'code',
-            language: p.executableCode.language || 'PYTHON',
-            code: p.executableCode.code,
-          };
-        if (p.codeExecutionResult)
-          return {
-            type: 'result',
-            outcome: p.codeExecutionResult.outcome,
-            output: p.codeExecutionResult.output,
-          };
         if (p.inlineData)
           return { type: 'image', mimeType: p.inlineData.mimeType, data: p.inlineData.data };
         return null;

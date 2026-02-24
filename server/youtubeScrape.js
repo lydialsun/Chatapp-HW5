@@ -45,6 +45,19 @@ function parseCount(text) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeIsoDate(input) {
+  if (!input || typeof input !== 'string') return null;
+  const raw = input.trim();
+  if (!raw) return null;
+  // Explicit YYYY-MM-DD handling for stable ISO output
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(`${raw}T00:00:00.000Z`);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function getText(node) {
   if (!node) return '';
   if (typeof node.simpleText === 'string') return node.simpleText;
@@ -106,11 +119,12 @@ async function fetchVideoDetails(videoId) {
   const details = data?.videoDetails || {};
   const micro = data?.microformat?.playerMicroformatRenderer || {};
   const durationSeconds = parseInt(details.lengthSeconds || '0', 10);
+  const publishRaw = micro.publishDate || micro.uploadDate || null;
   return {
     description: details.shortDescription || '',
     duration: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
     view_count: parseInt(details.viewCount || '0', 10) || null,
-    release_date: micro.publishDate || null,
+    release_date: normalizeIsoDate(publishRaw),
   };
 }
 
@@ -148,7 +162,9 @@ async function scrapeYouTubeChannelData(channelUrl, rawMaxVideos = 10) {
     return {
       video_id: vr.videoId || '',
       title: getText(vr.title) || '',
-      release_date: getText(vr.publishedTimeText) || null,
+      // Never store relative text (e.g. "3 years ago") in release_date.
+      release_date: null,
+      relative_published: getText(vr.publishedTimeText) || null,
       duration: getText(vr.lengthText) || null,
       view_count: parseCount(getText(vr.viewCountText)),
       thumbnail_url: bestThumb,
@@ -164,7 +180,8 @@ async function scrapeYouTubeChannelData(channelUrl, rawMaxVideos = 10) {
         title: v.title,
         description: detail.description || '',
         duration: detail.duration ?? v.duration,
-        release_date: detail.release_date || v.release_date,
+        release_date: detail.release_date || null,
+        relative_published: v.relative_published || null,
         view_count: detail.view_count ?? v.view_count,
         like_count: null,
         comment_count: null,
@@ -179,7 +196,8 @@ async function scrapeYouTubeChannelData(channelUrl, rawMaxVideos = 10) {
         title: v.title,
         description: '',
         duration: v.duration,
-        release_date: v.release_date,
+        release_date: null,
+        relative_published: v.relative_published || null,
         view_count: v.view_count,
         like_count: null,
         comment_count: null,

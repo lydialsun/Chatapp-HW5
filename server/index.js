@@ -376,6 +376,8 @@ app.get('/api/messages', async (req, res) => {
 
 async function handleGenerateImage(req, res) {
   try {
+    const startedAt = Date.now();
+    const startedIso = new Date(startedAt).toISOString();
     const { prompt, anchorImageBase64, anchorMimeType } = req.body;
     if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
     if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured', code: 'GEMINI_KEY_NOT_CONFIGURED' });
@@ -391,13 +393,24 @@ async function handleGenerateImage(req, res) {
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: [{ role: 'user', parts }],
-      config: {
-        response_modalities: ['TEXT', 'IMAGE'],
-      },
+    const modelName = 'gemini-2.5-flash-image';
+    console.log(`[generateImage] start ${startedIso} model=${modelName}`);
+    const backendTimeoutMs = 25000;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Image generation timeout after ${backendTimeoutMs}ms`)), backendTimeoutMs);
     });
+
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: modelName,
+        contents: [{ role: 'user', parts }],
+        config: {
+          response_modalities: ['TEXT', 'IMAGE'],
+        },
+      }),
+      timeoutPromise,
+    ]);
+    console.log(`[generateImage] gemini response received in ${Date.now() - startedAt}ms`);
 
     const responseParts = response?.candidates?.[0]?.content?.parts ?? [];
     const imgPart = responseParts.find((p) => p?.inline_data?.data || p?.inlineData?.data);
@@ -413,17 +426,22 @@ async function handleGenerateImage(req, res) {
     let imageBase64;
     if (typeof bytes === 'string') imageBase64 = bytes;
     else imageBase64 = Buffer.from(bytes).toString('base64');
+    console.log(`[generateImage] success in ${Date.now() - startedAt}ms`);
     return res.json({ imageBase64, mimeType: 'image/png' });
   } catch (err) {
-    console.error('Image generation error:', err);
+    console.error('[generateImage] error:', err);
     const msg = err?.message || 'Image generation failed';
-    const status = msg.includes('not found') || msg.includes('No image in response') ? 400 : 500;
-    res.status(status).json({ error: msg });
+    const status =
+      msg.includes('timeout')
+        ? 504
+        : (msg.includes('not found') || msg.includes('No image in response') ? 400 : 500);
+    return res.status(status).json({ error: msg });
   }
 }
 
 app.post('/api/generate-image', handleGenerateImage);
 app.post('/api/tools/generateImage', handleGenerateImage);
+app.get('/api/tools/generateImage/ping', (req, res) => res.json({ ok: true }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 

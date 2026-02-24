@@ -149,16 +149,26 @@ export async function executeYouTubeTool(toolName, args, context) {
 
     case 'plot_metric_vs_time': {
       const field = resolveNumericField(videos, args.metric || args.metricField || 'viewCount');
+      let skippedInvalidDate = 0;
       const withDate = videos
         .map((v) => {
-          const date = v.releaseDate || v.publishedAt || v.published;
+          const dateRaw = v.releaseDate || v.release_date || v.publishedAt || v.published;
+          const d = dateRaw ? new Date(dateRaw) : null;
           const num = typeof v[field] === 'number' ? v[field] : parseFloat(v[field]);
-          if (!date || isNaN(num)) return null;
-          return { date: new Date(date).toISOString().slice(0, 10), value: num, title: v.title };
+          if (!d || Number.isNaN(d.getTime())) {
+            skippedInvalidDate++;
+            return null;
+          }
+          if (Number.isNaN(num)) return null;
+          return { ts: d.getTime(), date: d.toISOString().slice(0, 10), value: num, title: v.title };
         })
         .filter(Boolean)
-        .sort((a, b) => a.date.localeCompare(b.date));
-      if (!withDate.length) return { error: `No valid data for field "${field}" with dates. Available: ${Object.keys(videos[0] || {}).join(', ')}` };
+        .sort((a, b) => a.ts - b.ts)
+        .map(({ ts, ...rest }) => rest);
+      if (skippedInvalidDate > 0) {
+        console.warn(`[plot_metric_vs_time] Skipped ${skippedInvalidDate} videos due to invalid date values.`);
+      }
+      if (withDate.length < 2) return { error: 'Not enough valid dates to plot.' };
       return { _chartType: 'metricVsTime', data: withDate, metricField: field };
     }
 
