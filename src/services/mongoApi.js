@@ -1,7 +1,14 @@
-const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+
+function buildApiUrl(path) {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  const base = API_BASE || '';
+  const combined = base ? `${base}${p}` : p;
+  return combined.replace(/(?<!:)\/\/+/g, '/');
+}
 
 const api = async (path, options = {}) => {
-  const url = path.startsWith('/') ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
+  const url = buildApiUrl(path);
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,

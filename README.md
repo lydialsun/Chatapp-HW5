@@ -146,6 +146,13 @@ New → **Blueprint** → connect your repo. Render reads `render.yaml` and crea
 
 Render's free plan spins down services after 15 minutes of inactivity. The first request after a sleep takes ~30 seconds. Upgrade to the Starter plan ($7/mo) to avoid this.
 
+### "Cannot POST //api/users/login" on the deployed site
+
+This happens when the frontend calls the wrong URL (often with a double slash). Fix it by:
+
+1. **Set `REACT_APP_API_URL` on the frontend service** (Dashboard → chatapp-frontend → Environment). Use your **backend** URL with **no trailing slash**, e.g. `https://chatapp-backend.onrender.com`.
+2. **Redeploy the frontend** (Manual Deploy → Deploy latest commit). Env vars are baked in at build time, so changing them or pulling new code requires a new deploy.
+
 ---
 
 ## Running the App
