@@ -108,11 +108,26 @@ export const generateImage = async (prompt, anchorImageBase64 = null, anchorMime
   const timeoutMs = 30000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await api('/api/tools/generateImage', {
+    const res = await fetch(buildApiUrl('/api/tools/generateImage'), {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
       signal: controller.signal,
     });
+    const text = await res.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error('Invalid JSON from server');
+    }
+    if (!res.ok) {
+      throw new Error(data?.error || 'Image generation failed');
+    }
+    return {
+      imageBase64: data?.imageBase64,
+      mimeType: data?.mimeType || 'image/png',
+    };
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw new Error(`Image generation request timed out after ${timeoutMs}ms`);

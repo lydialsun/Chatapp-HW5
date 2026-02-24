@@ -366,19 +366,21 @@ async function handleGenerateImage(req, res) {
 
     const parts = [{ text: prompt.trim() }];
     if (anchorImageBase64) {
+      const stripped = String(anchorImageBase64).replace(/^data:image\/\w+;base64,/, '');
+      const bytes = Buffer.from(stripped, 'base64');
       parts.push({
-        inlineData: {
-          mimeType: anchorMimeType || 'image/png',
-          data: String(anchorImageBase64).replace(/^data:image\/\w+;base64,/, ''),
+        inline_data: {
+          mime_type: anchorMimeType || 'image/png',
+          data: bytes,
         },
       });
     }
 
-    const modelName = 'gemini-2.5-flash-image';
+    const modelName = 'gemini-3-pro-image-preview';
     console.log(`[generateImage] start ${startedIso} model=${modelName}`);
     const backendTimeoutMs = 25000;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Image generation timeout after ${backendTimeoutMs}ms`)), backendTimeoutMs);
+      setTimeout(() => reject(new Error('Gemini timeout')), backendTimeoutMs);
     });
 
     const response = await Promise.race([
@@ -399,7 +401,7 @@ async function handleGenerateImage(req, res) {
 
     if (!bytes) {
       return res.status(400).json({
-        error: 'No image in response. The model may not support image generation for this project/prompt.',
+        error: 'No image returned from Gemini',
         debugParts: responseParts,
       });
     }

@@ -171,6 +171,14 @@ export default function Chat({ user, onLogout }) {
   // so the messages useEffect knows to skip the reload (streaming is in progress).
   const justCreatedSessionRef = useRef(false);
 
+  const withTimeout = (p, ms = 30000) =>
+    Promise.race([
+      p,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Image generation timed out')), ms)
+      ),
+    ]);
+
   // On login: load sessions from DB; 'new' means an unsaved pending chat
   useEffect(() => {
     const init = async () => {
@@ -445,7 +453,8 @@ export default function Chat({ user, onLogout }) {
       /\bgenerateImage\b/i.test(text) ||
       /\bimage\s+generation\b/i.test(text) ||
       (images.length > 0 && /\b(generate|create|draw|style|transform|based on this)\b/i.test(text));
-    const useYouTubeTools = videos.length > 0 || wantsImageGeneration;
+    const useYouTubeTools = videos.length > 0;
+    const useImageTools = wantsImageGeneration;
 
     const capturedCsv = csvContext;
     const needsBase64 = false;
@@ -528,33 +537,59 @@ ${sessionSummary}${slimCsvBlock}
     setImages([]);
     setCsvContext(null);
     setStreaming(true);
-
-    // Store display text only — base64 is never persisted
-    await saveMessage(sessionId, 'user', userContent, capturedImages.length ? capturedImages : null);
-
-    const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
-
-    // History: plain display text only — session summary handles CSV context on every message
-    const history = messages
-      .filter((m) => m.role === 'user' || m.role === 'model')
-      .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
-
-    const assistantId = `a-${Date.now()}`;
-    setMessages((m) => [
-      ...m,
-      { id: assistantId, role: 'model', content: '', timestamp: new Date().toISOString() },
-    ]);
-
-    abortRef.current = false;
-
-    let fullContent = '';
-    let groundingData = null;
-    let structuredParts = null;
-    let toolCharts = [];
-    let toolCalls = [];
-
     try {
-      if (useYouTubeTools) {
+      // Store display text only — base64 is never persisted
+      await saveMessage(sessionId, 'user', userContent, capturedImages.length ? capturedImages : null);
+
+      const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
+
+      // History: plain display text only — session summary handles CSV context on every message
+      const history = messages
+        .filter((m) => m.role === 'user' || m.role === 'model')
+        .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
+
+      const assistantId = `a-${Date.now()}`;
+      setMessages((m) => [
+        ...m,
+        { id: assistantId, role: 'model', content: '', timestamp: new Date().toISOString() },
+      ]);
+
+      abortRef.current = false;
+
+      let fullContent = '';
+      let groundingData = null;
+      let structuredParts = null;
+      let toolCharts = [];
+      let toolCalls = [];
+
+      if (useImageTools && !useYouTubeTools) {
+        const anchorImage = capturedImages[0];
+        const result = await withTimeout(
+          apiGenerateImage(
+            text || 'Generate an image.',
+            anchorImage?.data || null,
+            anchorImage?.mimeType || 'image/png'
+          ),
+          30000
+        );
+        fullContent = 'Here you go.';
+        toolCharts = [{
+          _chartType: 'generatedImage',
+          imageBase64: result.imageBase64,
+          mimeType: result.mimeType || 'image/png',
+        }];
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  content: fullContent,
+                  charts: toolCharts,
+                }
+              : msg
+          )
+        );
+      } else if (useYouTubeTools) {
         const anchorImage = capturedImages[0];
         const youtubeContext = {
           videos,
@@ -628,39 +663,44 @@ ${sessionSummary}${slimCsvBlock}
           }
         }
       }
+
+      if (groundingData) {
+        setMessages((m) =>
+          m.map((msg) => (msg.id === assistantId ? { ...msg, grounding: groundingData } : msg))
+        );
+      }
+
+      // Save plain text + any tool charts to DB
+      const savedContent = structuredParts
+        ? structuredParts.filter((p) => p.type === 'text').map((p) => p.text).join('\n')
+        : fullContent;
+      await saveMessage(
+        sessionId,
+        'model',
+        savedContent,
+        null,
+        toolCharts.length ? toolCharts : null,
+        toolCalls.length ? toolCalls : null
+      );
+
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, messageCount: s.messageCount + 2 } : s))
+      );
+      inputRef.current?.focus();
     } catch (err) {
       const errText = `Error: ${err.message}`;
-      setMessages((m) =>
-        m.map((msg) => (msg.id === assistantId ? { ...msg, content: errText } : msg))
-      );
-      fullContent = errText;
+      setMessages((m) => {
+        const copy = [...m];
+        const idx = [...copy].reverse().findIndex((msg) => msg.role === 'model');
+        if (idx >= 0) {
+          const realIdx = copy.length - 1 - idx;
+          copy[realIdx] = { ...copy[realIdx], content: errText };
+        }
+        return copy;
+      });
+    } finally {
+      setStreaming(false);
     }
-
-    if (groundingData) {
-      setMessages((m) =>
-        m.map((msg) => (msg.id === assistantId ? { ...msg, grounding: groundingData } : msg))
-      );
-    }
-
-    // Save plain text + any tool charts to DB
-    const savedContent = structuredParts
-      ? structuredParts.filter((p) => p.type === 'text').map((p) => p.text).join('\n')
-      : fullContent;
-    await saveMessage(
-      sessionId,
-      'model',
-      savedContent,
-      null,
-      toolCharts.length ? toolCharts : null,
-      toolCalls.length ? toolCalls : null
-    );
-
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, messageCount: s.messageCount + 2 } : s))
-    );
-
-    setStreaming(false);
-    inputRef.current?.focus();
   };
 
   const removeImage = (i) => setImages((prev) => prev.filter((_, idx) => idx !== i));

@@ -65,7 +65,7 @@ If you already used quotes (e.g. `REACT_APP_GEMINI_API_KEY="AIzaSy..."`), the ba
 
 After logging in, the app has two tabs: **Chat** and **YouTube Channel Download**.
 
-- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses a **pure Node.js HTTP scraper** (no YouTube API key, no yt-dlp, no system binaries) to fetch metadata: title, description, transcript (best-effort; may be `null`), duration (seconds), release date, view count, like count, comment count, and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If scraping fails, the app falls back to sample data (`public/veritasium_10.json`). Backend endpoint: `POST /api/youtube/download-channel` with body `{ channelUrl, maxVideos }`.
+- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses a **pure Node.js HTTP scraper** (no YouTube API key, no yt-dlp, no system binaries) to fetch metadata: title, description, transcript (best-effort; may be `null`), duration (seconds), release date, view count, like count, comment count, and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If scraping fails, the app falls back to sample data (`public/veritasium_channel_data.json`). Backend endpoint: `POST /api/youtube/download-channel` with body `{ channelUrl, maxVideos }`.
 
   **No YouTube API key required:** The downloader scrapes YouTube pages directly in Node.js and works on Render without system dependencies.
 
@@ -73,7 +73,7 @@ After logging in, the app has two tabs: **Chat** and **YouTube Channel Download*
 
 - **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_10.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
 
-  - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
+  - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate). Image calls use a direct image-only path with client/server timeout guards (30s client, 25s backend) so requests resolve with an image or a visible error instead of hanging.
   - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, duration) vs time; chart is shown in chat with enlarge and download.
   - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title. The AI receives the full list of videos (title + videoUrl) in context and must use only those URLs or the tool result — it never invents links. If the loaded data has placeholder video IDs (e.g. sample1, sample2), the tool automatically maps them to real Veritasium video URLs so the link always works.
   - **compute_stats_json** — Mean, median, std, min, max for any numeric field in the channel JSON.
