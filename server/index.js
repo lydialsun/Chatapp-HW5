@@ -376,24 +376,47 @@ async function handleGenerateImage(req, res) {
       });
     }
 
-    const modelName = 'gemini-3-pro-image-preview';
-    console.log(`[generateImage] start ${startedIso} model=${modelName}`);
-    const backendTimeoutMs = 25000;
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Gemini timeout')), backendTimeoutMs);
-    });
+    const PRIMARY_MODEL = 'gemini-2.5-flash-image';
+    const FALLBACK_MODEL = 'gemini-3-pro-image-preview';
+    const backendTimeoutMs = Math.max(10000, parseInt(process.env.IMAGE_TIMEOUT_MS || '65000', 10));
+    const isTimeout = (e) => /timeout/i.test(String(e?.message || ''));
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    const response = await Promise.race([
+    const runModelOnce = async (modelName) => Promise.race([
       ai.models.generateContent({
         model: modelName,
         contents: [{ role: 'user', parts }],
         config: {
-          response_modalities: ['TEXT', 'IMAGE'],
+          response_modalities: ['IMAGE'],
         },
       }),
-      timeoutPromise,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Gemini timeout')), backendTimeoutMs);
+      }),
     ]);
-    console.log(`[generateImage] gemini response received in ${Date.now() - startedAt}ms`);
+
+    const runWithRetry = async (modelName) => {
+      try {
+        return await runModelOnce(modelName);
+      } catch (e) {
+        if (!isTimeout(e)) throw e;
+        await sleep(250 + Math.floor(Math.random() * 300));
+        return runModelOnce(modelName);
+      }
+    };
+
+    let response;
+    let modelUsed = PRIMARY_MODEL;
+    console.log(`[generateImage] start ${startedIso} model=${PRIMARY_MODEL}`);
+    try {
+      response = await runWithRetry(PRIMARY_MODEL);
+    } catch (primaryErr) {
+      if (!isTimeout(primaryErr)) throw primaryErr;
+      modelUsed = FALLBACK_MODEL;
+      console.warn(`[generateImage] primary timed out, fallback=${FALLBACK_MODEL}`);
+      response = await runModelOnce(FALLBACK_MODEL);
+    }
+    console.log(`[generateImage] gemini response received in ${Date.now() - startedAt}ms model=${modelUsed}`);
 
     const responseParts = response?.candidates?.[0]?.content?.parts ?? [];
     const imgPart = responseParts.find((p) => p?.inline_data?.data || p?.inlineData?.data);
@@ -410,7 +433,7 @@ async function handleGenerateImage(req, res) {
     if (typeof bytes === 'string') imageBase64 = bytes;
     else imageBase64 = Buffer.from(bytes).toString('base64');
     console.log(`[generateImage] success in ${Date.now() - startedAt}ms`);
-    return res.json({ imageBase64, mimeType: 'image/png' });
+    return res.json({ imageBase64, mimeType: 'image/png', modelUsed, elapsedMs: Date.now() - startedAt });
   } catch (err) {
     console.error('[generateImage] error:', err);
     const msg = err?.message || 'Image generation failed';

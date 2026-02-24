@@ -1,4 +1,4 @@
-const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+const API_BASE = (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
 
 function buildApiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -105,10 +105,10 @@ export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) =
 
 export const generateImage = async (prompt, anchorImageBase64 = null, anchorMimeType = 'image/png') => {
   const controller = new AbortController();
-  const timeoutMs = 30000;
+  const timeoutMs = 70000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(buildApiUrl('/api/tools/generateImage'), {
+    const res = await fetch(`${API_BASE}/api/tools/generateImage`.replace(/(?<!:)\/\/+/g, '/'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
@@ -123,6 +123,9 @@ export const generateImage = async (prompt, anchorImageBase64 = null, anchorMime
     }
     if (!res.ok) {
       throw new Error(data?.error || 'Image generation failed');
+    }
+    if (!data?.imageBase64) {
+      throw new Error('Image generation failed: no image in response');
     }
     return {
       imageBase64: data?.imageBase64,
