@@ -29,9 +29,26 @@ export default function MetricVsTimeChart({ data, metricField }) {
       <ResponsiveContainer width="100%" height={enlarged ? 400 : 260}>
         <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 24 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(156, 175, 136, 0.2)" />
-          <XAxis dataKey="date" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+          <XAxis
+            type="number"
+            dataKey="x"
+            domain={['dataMin', 'dataMax']}
+            tick={{ fontSize: 10 }}
+            angle={-30}
+            textAnchor="end"
+            interval={0}
+            tickFormatter={(x) => {
+              const d = new Date(x);
+              return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+            }}
+          />
           <YAxis tick={{ fontSize: 10 }} />
-          <Tooltip />
+          <Tooltip
+            labelFormatter={(x) => {
+              const d = new Date(x);
+              return Number.isNaN(d.getTime()) ? 'Invalid date' : d.toLocaleDateString();
+            }}
+          />
           <Line type="monotone" dataKey="value" stroke="#9caf88" strokeWidth={2} dot={{ r: 3 }} name={metricField} />
         </LineChart>
       </ResponsiveContainer>

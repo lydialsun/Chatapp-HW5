@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { fetchYouTubeChannelViaGemini } from '../services/mongoApi';
+import { normalizeVideosReleaseDates } from '../services/dateNormalization';
 import './YouTubeChannelDownload.css';
 
 const SAMPLE_JSON_URL = '/veritasium_10.json';
@@ -36,9 +37,12 @@ export default function YouTubeChannelDownload() {
     try {
       const max = Math.min(100, Math.max(1, maxVideos));
       const data = await fetchYouTubeChannelViaGemini(channelUrl, max);
-      const normalized = data?.channel
+      const base = data?.channel
         ? { channelTitle: data.channel.channelTitle || '', videos: data.videos || [] }
         : data;
+      const { videos, normalizedCount, invalidCount } = normalizeVideosReleaseDates(base?.videos || []);
+      console.warn(`[download-channel] normalized release dates: ok=${normalizedCount}, invalid=${invalidCount}`);
+      const normalized = { ...base, videos };
       doneRef.current = true;
       clear();
       setProgress(100);
@@ -56,9 +60,11 @@ export default function YouTubeChannelDownload() {
         const res = await fetch(SAMPLE_JSON_URL);
         if (!res.ok) throw new Error('Sample not found');
         const sample = await res.json();
-        const normalizedSample = sample?.channel
+        const baseSample = sample?.channel
           ? { channelTitle: sample.channel.channelTitle || '', videos: sample.videos || [] }
           : sample;
+        const { videos } = normalizeVideosReleaseDates(baseSample?.videos || []);
+        const normalizedSample = { ...baseSample, videos };
         setResult({ ...normalizedSample, _sampleFallback: true, _fallbackReason: isScraperFailure ? 'scrape_failed' : 'other' });
         setError(serverMessage || 'Download failed');
       } catch (sampleErr) {

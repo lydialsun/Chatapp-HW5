@@ -152,15 +152,36 @@ export async function executeYouTubeTool(toolName, args, context) {
       let skippedInvalidDate = 0;
       const withDate = videos
         .map((v) => {
-          const dateRaw = v.releaseDate || v.release_date || v.publishedAt || v.published;
-          const d = dateRaw ? new Date(dateRaw) : null;
+          const msFromField = Number.isFinite(v.release_date_ms) ? v.release_date_ms : (
+            Number.isFinite(v.releaseDateMs) ? v.releaseDateMs : NaN
+          );
+          const msFromIso = v.release_date_iso
+            ? Date.parse(v.release_date_iso)
+            : (v.releaseDateIso ? Date.parse(v.releaseDateIso) : (
+              v.releaseDate ? Date.parse(v.releaseDate) : (
+                v.release_date ? Date.parse(v.release_date) : NaN
+              )
+            ));
+          const ms = Number.isFinite(msFromField) ? msFromField : msFromIso;
           const num = typeof v[field] === 'number' ? v[field] : parseFloat(v[field]);
-          if (!d || Number.isNaN(d.getTime())) {
+          if (!Number.isFinite(ms)) {
             skippedInvalidDate++;
             return null;
           }
           if (Number.isNaN(num)) return null;
-          return { ts: d.getTime(), date: d.toISOString().slice(0, 10), value: num, title: v.title };
+          const d = new Date(ms);
+          if (Number.isNaN(d.getTime())) {
+            skippedInvalidDate++;
+            return null;
+          }
+          return {
+            x: ms,
+            ts: ms,
+            date: d.toISOString().slice(0, 10),
+            value: num,
+            title: v.title,
+            video_url: v.video_url || v.videoUrl || '',
+          };
         })
         .filter(Boolean)
         .sort((a, b) => a.ts - b.ts)
@@ -168,7 +189,7 @@ export async function executeYouTubeTool(toolName, args, context) {
       if (skippedInvalidDate > 0) {
         console.warn(`[plot_metric_vs_time] Skipped ${skippedInvalidDate} videos due to invalid date values.`);
       }
-      if (withDate.length < 2) return { error: 'Not enough valid dates to plot.' };
+      if (withDate.length < 2) return { error: `Not enough valid dates to plot. Skipped ${skippedInvalidDate} video(s) with invalid dates. Re-download or normalize dates.` };
       return { _chartType: 'metricVsTime', data: withDate, metricField: field };
     }
 

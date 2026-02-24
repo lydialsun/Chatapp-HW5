@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { streamChat, chatWithCsvTools, chatWithYouTubeTools } from '../services/gemini';
 import { parseCsvToRows, executeTool, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import { executeYouTubeTool } from '../services/youtubeTools';
+import { normalizeVideosReleaseDates } from '../services/dateNormalization';
 import {
   getSessions,
   createSession,
@@ -55,7 +56,7 @@ const parseCSV = (text) => {
 // Normalize channel JSON: accept snake_case (video_url, video_id, etc.) and ensure camelCase for tools
 function normalizeChannelVideos(videos) {
   if (!Array.isArray(videos)) return [];
-  return videos.map((v) => ({
+  const mapped = videos.map((v) => ({
     videoId: v.videoId ?? v.video_id,
     title: v.title,
     description: v.description,
@@ -70,6 +71,9 @@ function normalizeChannelVideos(videos) {
     thumbnail: v.thumbnail ?? v.thumbnail_url,
     ...v,
   }));
+  const { videos: normalized, normalizedCount, invalidCount } = normalizeVideosReleaseDates(mapped);
+  console.warn(`[channel-json] normalized release dates: ok=${normalizedCount}, invalid=${invalidCount}`);
+  return normalized;
 }
 
 // Extract plain text from a message (for history only — never returns base64)
