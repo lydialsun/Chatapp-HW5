@@ -1,7 +1,8 @@
-const API = process.env.REACT_APP_API_URL || '';
+const API_BASE = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
 
 const api = async (path, options = {}) => {
-  const res = await fetch(`${API}${path}`, {
+  const url = path.startsWith('/') ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
+  const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
