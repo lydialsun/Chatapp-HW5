@@ -1,4 +1,5 @@
 const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/+$/, '');
+console.log('Using API_BASE:', API_BASE);
 
 function buildApiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -135,6 +136,7 @@ export const generateImage = async (input, anchorImageBase64 = null, anchorMimeT
       throw new Error('Invalid JSON from server');
     }
     console.log('[generateImage] status', res.status, 'keys', Object.keys(data || {}));
+    console.log('[generateImage response]', data);
     if (!res.ok) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }

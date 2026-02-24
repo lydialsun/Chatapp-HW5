@@ -8,6 +8,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const { GoogleGenAI } = require('@google/genai');
+const BUILD_VERSION = 'image-anchor-fix-v2';
 
 const app = express();
 app.use(cors());
@@ -360,7 +361,12 @@ async function handleGenerateImage(req, res) {
     if (typeof bytes === 'string') imageBase64 = bytes;
     else imageBase64 = Buffer.from(bytes).toString('base64');
     console.log(`[generateImage] requestId=${requestId} success_ms=${Date.now() - startedAt}`);
-    return res.json({ imageBase64, mimeType: 'image/png', modelUsed });
+    return res.json({
+      imageBase64,
+      mimeType: 'image/png',
+      modelUsed,
+      build: BUILD_VERSION,
+    });
   } catch (err) {
     console.error(`[generateImage] requestId=${requestId} error:`, err);
     const msg = err?.message || 'Image generation failed';
@@ -368,7 +374,11 @@ async function handleGenerateImage(req, res) {
       msg.includes('timeout')
         ? 504
         : (msg.includes('not found') || msg.includes('No image in response') ? 400 : 500);
-    return res.status(status).json({ error: msg, requestId });
+    return res.status(status).json({
+      error: msg,
+      requestId,
+      build: BUILD_VERSION,
+    });
   }
 }
 
@@ -382,6 +392,7 @@ const PORT = process.env.PORT || 3001;
 
 connect()
   .then(() => {
+    console.log('SERVER BUILD:', BUILD_VERSION);
     app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
   })
   .catch((err) => {
