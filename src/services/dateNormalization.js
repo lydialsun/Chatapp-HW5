@@ -37,13 +37,32 @@ export function normalizeVideosReleaseDates(videos, now = new Date()) {
   let normalizedCount = 0;
   let invalidCount = 0;
   const next = videos.map((v) => {
-    const raw = v.release_date ?? v.releaseDate ?? v.publishedAt ?? null;
-    const { iso, ms } = normalizeReleaseDate(raw, now);
+    const publishedRaw = typeof v.publishedAt === 'string' ? v.publishedAt.trim() : '';
+    const releaseRaw = v.release_date ?? v.releaseDate ?? null;
+
+    // Priority:
+    // 1) parseable publishedAt
+    // 2) release_date absolute/relative
+    let iso = null;
+    let ms = null;
+    if (publishedRaw) {
+      const parsedPublished = Date.parse(publishedRaw);
+      if (Number.isFinite(parsedPublished)) {
+        ms = parsedPublished;
+        iso = new Date(parsedPublished).toISOString();
+      }
+    }
+    if (!Number.isFinite(ms)) {
+      const normalized = normalizeReleaseDate(releaseRaw, now);
+      iso = normalized.iso;
+      ms = normalized.ms;
+    }
+
     if (iso && Number.isFinite(ms)) normalizedCount++;
     else invalidCount++;
     return {
       ...v,
-      release_date_raw: raw ?? null,
+      release_date_raw: releaseRaw ?? null,
       release_date_iso: iso,
       release_date_ms: ms,
     };

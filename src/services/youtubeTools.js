@@ -150,25 +150,31 @@ export async function executeYouTubeTool(toolName, args, context) {
     case 'plot_metric_vs_time': {
       const field = resolveNumericField(videos, args.metric || args.metricField || 'viewCount');
       let skippedInvalidDate = 0;
+      let publishedPresent = 0;
+      let releaseDatePresent = 0;
+      let normalizedMsCount = 0;
       const withDate = videos
         .map((v) => {
-          const msFromField = Number.isFinite(v.release_date_ms) ? v.release_date_ms : (
-            Number.isFinite(v.releaseDateMs) ? v.releaseDateMs : NaN
-          );
-          const msFromIso = v.release_date_iso
-            ? Date.parse(v.release_date_iso)
-            : (v.releaseDateIso ? Date.parse(v.releaseDateIso) : (
-              v.releaseDate ? Date.parse(v.releaseDate) : (
-                v.release_date ? Date.parse(v.release_date) : NaN
-              )
-            ));
-          const ms = Number.isFinite(msFromField) ? msFromField : msFromIso;
-          const num = typeof v[field] === 'number' ? v[field] : parseFloat(v[field]);
+          const publishedRaw = typeof v.publishedAt === 'string' ? v.publishedAt.trim() : '';
+          const releaseRaw = v.release_date ?? v.releaseDate ?? null;
+          if (publishedRaw) publishedPresent++;
+          if (releaseRaw) releaseDatePresent++;
+
+          // Requested fallback chain:
+          // release_date_ms -> release_date_iso -> publishedAt -> release_date
+          const ms =
+            (Number.isFinite(v.release_date_ms) ? v.release_date_ms : NaN) ||
+            (v.release_date_iso ? Date.parse(v.release_date_iso) : NaN) ||
+            (publishedRaw ? Date.parse(publishedRaw) : NaN) ||
+            (releaseRaw ? Date.parse(String(releaseRaw)) : NaN);
+
+          const value = Number(v[field]);
           if (!Number.isFinite(ms)) {
             skippedInvalidDate++;
             return null;
           }
-          if (Number.isNaN(num)) return null;
+          normalizedMsCount++;
+          if (!Number.isFinite(value)) return null;
           const d = new Date(ms);
           if (Number.isNaN(d.getTime())) {
             skippedInvalidDate++;
@@ -178,7 +184,7 @@ export async function executeYouTubeTool(toolName, args, context) {
             x: ms,
             ts: ms,
             date: d.toISOString().slice(0, 10),
-            value: num,
+            value,
             title: v.title,
             video_url: v.video_url || v.videoUrl || '',
           };
@@ -189,7 +195,11 @@ export async function executeYouTubeTool(toolName, args, context) {
       if (skippedInvalidDate > 0) {
         console.warn(`[plot_metric_vs_time] Skipped ${skippedInvalidDate} videos due to invalid date values.`);
       }
-      if (withDate.length < 2) return { error: `Not enough valid dates to plot. Skipped ${skippedInvalidDate} video(s) with invalid dates. Re-download or normalize dates.` };
+      if (withDate.length < 2) {
+        return {
+          error: `Not enough valid dates to plot. total=${videos.length}, publishedAt_present=${publishedPresent}, release_date_present=${releaseDatePresent}, normalized_ms=${normalizedMsCount}, invalid_dates=${skippedInvalidDate}. Re-download or normalize dates.`,
+        };
+      }
       return { _chartType: 'metricVsTime', data: withDate, metricField: field };
     }
 
