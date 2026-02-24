@@ -1,0 +1,45 @@
+.play-video-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border-soft, rgba(156, 175, 136, 0.25));
+  border-radius: 12px;
+  cursor: pointer;
+  max-width: 400px;
+  transition: background 0.15s;
+}
+
+.play-video-card:hover {
+  background: rgba(247, 231, 206, 0.5);
+}
+
+.play-video-thumb {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.play-video-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.play-video-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text, #3d3a36);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.play-video-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #6b6560);
+}

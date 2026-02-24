@@ -1,0 +1,53 @@
+.metric-vs-time-wrap {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border-soft, rgba(156, 175, 136, 0.25));
+  border-radius: 12px;
+}
+
+.metric-vs-time-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text, #3d3a36);
+}
+
+.metric-vs-time-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.metric-vs-time-actions button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: var(--sage, #9caf88);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.metric-vs-time-enlarged {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: pointer;
+}
+
+.metric-vs-time-enlarged-inner {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 16px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  cursor: default;
+}

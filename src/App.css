@@ -5,3 +5,53 @@
 .App {
   min-height: 100vh;
 }
+
+.app-logged-in {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(248, 228, 235, 0.5);
+  border-bottom: 1px solid rgba(156, 175, 136, 0.25);
+  flex-shrink: 0;
+}
+
+.app-tabs button {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #3d3a36;
+  cursor: pointer;
+}
+
+.app-tabs button.active {
+  background: rgba(183, 212, 168, 0.4);
+}
+
+.app-tabs button:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.app-user-name {
+  margin-left: auto;
+  font-size: 0.9rem;
+  color: #6b6560;
+}
+
+.app-logout {
+  padding: 0.35rem 0.75rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(156, 175, 136, 0.25);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}

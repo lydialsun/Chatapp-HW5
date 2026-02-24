@@ -1,0 +1,72 @@
+.generated-image-wrap {
+  margin: 0.75rem 0;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border-soft, rgba(156, 175, 136, 0.25));
+  border-radius: 12px;
+  display: inline-block;
+}
+
+.generated-image-img {
+  max-width: 280px;
+  max-height: 200px;
+  display: block;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.generated-image-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.generated-image-actions button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: var(--sage, #9caf88);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.generated-image-enlarged {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: pointer;
+}
+
+.generated-image-enlarged-inner {
+  background: #fff;
+  padding: 1rem;
+  border-radius: 12px;
+  max-width: 95vw;
+  max-height: 95vh;
+  overflow: auto;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.generated-image-enlarged-inner img {
+  max-width: 90vw;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.generated-image-enlarged-inner button {
+  padding: 0.4rem 1rem;
+  background: var(--sage, #9caf88);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
