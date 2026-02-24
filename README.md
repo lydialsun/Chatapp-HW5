@@ -32,6 +32,7 @@ Create a `.env` file in the project root with:
 | `REACT_APP_GEMINI_API_KEY` | Yes | Frontend (baked in at build) | Google Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
 | `REACT_APP_MONGODB_URI` | Yes | Backend | MongoDB Atlas connection string. Format: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
 | `REACT_APP_API_URL` | Production only | Frontend (baked in at build) | Full URL of the backend, e.g. `https://your-backend.onrender.com`. **No trailing slash.** Leave blank for local dev (proxy handles it). |
+| `YOUTUBE_API_KEY` | For YouTube tab | Backend | Google YouTube Data API v3 key. Required for the "YouTube Channel Download" tab. Get one in [Google Cloud Console](https://console.cloud.google.com/apis/credentials). |
 
 The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB connection string if you prefer those names.
 
@@ -41,7 +42,24 @@ The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB c
 REACT_APP_GEMINI_API_KEY=AIzaSy...
 REACT_APP_MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/
 # REACT_APP_API_URL not needed locally — the dev server proxies /api to localhost:3001
+# YOUTUBE_API_KEY=your_youtube_api_key   # optional; needed for YouTube Channel Download tab
 ```
+
+## YouTube Channel Download & Chat Tools
+
+After logging in, the app has two tabs: **Chat** and **YouTube Channel Download**.
+
+- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set max videos (1–100, default 10), and click **Download Channel Data**. Metadata (title, description, duration, release date, view/like/comment counts, video URL, thumbnail) is fetched and can be downloaded as a JSON file. A progress bar is shown while downloading. To fetch real data, the **backend** must have `YOUTUBE_API_KEY` set (see below). A sample file for Veritasium (10 videos) is in `public/veritasium_channel_data.json`. To refresh it with live data: `YOUTUBE_API_KEY=your_key node scripts/fetch-veritasium.js`.
+
+  **"YouTube API key not configured" even after adding the key to `.env`?**  
+  If your app uses a **deployed backend** (e.g. `REACT_APP_API_URL=https://...onrender.com`), the browser sends requests to that server. That server does **not** read your local `.env`. Add `YOUTUBE_API_KEY` in the **host’s** environment (e.g. Render: Dashboard → your backend service → Environment → add `YOUTUBE_API_KEY` with your key, then Save/Redeploy). For **local** backend only: set `YOUTUBE_API_KEY` in `.env`, then restart the Node server (`npm run server`). To use the local backend from the React app, leave `REACT_APP_API_URL` blank or set it to `http://localhost:3001` and run both client and server.
+
+- **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_channel_data.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
+
+  - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
+  - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, durationSeconds) vs time; chart is shown in chat with enlarge and download.
+  - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title.
+  - **compute_stats_json** — Mean, median, std, min, max for any numeric field in the channel JSON.
 
 ## MongoDB Setup
 
@@ -63,6 +81,8 @@ One document per registered user.
 | `username` | string | Lowercase username |
 | `password` | string | bcrypt hash |
 | `email` | string | Email address (optional) |
+| `firstName` | string | First name (optional) |
+| `lastName` | string | Last name (optional) |
 | `createdAt` | string | ISO timestamp |
 
 #### Collection: `sessions`

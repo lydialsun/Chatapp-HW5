@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -27,10 +28,86 @@ app.get('/', (req, res) => {
           <h1>Chat API Server</h1>
           <p>Backend is running. Use the React app at <a href="http://localhost:3000" style="color:#ffd700">localhost:3000</a></p>
           <p><a href="/api/status" style="color:#ffd700">Check DB status</a></p>
+          <p><a href="/api/youtube/channel?url=https://www.youtube.com/@veritasium&maxVideos=1" style="color:#ffd700">Test YouTube channel</a></p>
         </div>
       </body>
     </html>
   `);
+});
+
+// YouTube channel (registered early so it's always available)
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
+function parseChannelIdOrHandle(url) {
+  if (!url || typeof url !== 'string') return null;
+  const u = url.trim();
+  const matchHandle = u.match(/youtube\.com\/@([^/?&#]+)/i);
+  if (matchHandle) return { type: 'handle', value: matchHandle[1] };
+  const matchChannel = u.match(/youtube\.com\/channel\/(UC[\w-]+)/i);
+  if (matchChannel) return { type: 'channelId', value: matchChannel[1] };
+  const matchCustom = u.match(/youtube\.com\/c\/([^/?&#]+)/i);
+  if (matchCustom) return { type: 'customUrl', value: matchCustom[1] };
+  if (/^UC[\w-]+$/i.test(u)) return { type: 'channelId', value: u };
+  return null;
+}
+app.get('/api/youtube/channel', async (req, res) => {
+  try {
+    const channelUrl = req.query.url || req.query.channelUrl;
+    const maxVideos = Math.min(100, Math.max(1, parseInt(req.query.maxVideos || '10', 10)));
+    if (!channelUrl) return res.status(400).json({ error: 'url or channelUrl required' });
+    if (!YOUTUBE_API_KEY) return res.status(503).json({ error: 'YouTube API key not configured (YOUTUBE_API_KEY)' });
+    const parsed = parseChannelIdOrHandle(channelUrl);
+    if (!parsed) return res.status(400).json({ error: 'Invalid channel URL. Use e.g. https://www.youtube.com/@veritasium' });
+    let channelId = null;
+    const base = 'https://www.googleapis.com/youtube/v3';
+    if (parsed.type === 'channelId') {
+      channelId = parsed.value;
+    } else {
+      const query = parsed.type === 'handle' ? `forHandle=${encodeURIComponent(parsed.value)}` : `forUsername=${encodeURIComponent(parsed.value)}`;
+      const listRes = await fetch(`${base}/channels?part=id,snippet,contentDetails&key=${YOUTUBE_API_KEY}&${query}`);
+      const listData = await listRes.json();
+      if (!listData.items || listData.items.length === 0) return res.status(404).json({ error: 'Channel not found' });
+      channelId = listData.items[0].id;
+    }
+    const channelRes = await fetch(`${base}/channels?part=snippet,contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`);
+    const channelData = await channelRes.json();
+    const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsId) return res.status(404).json({ error: 'Channel has no uploads playlist' });
+    const playlistRes = await fetch(`${base}/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=${maxVideos}&key=${YOUTUBE_API_KEY}`);
+    const playlistData = await playlistRes.json();
+    const videoIds = (playlistData.items || []).map((i) => i.contentDetails?.videoId).filter(Boolean);
+    if (videoIds.length === 0) {
+      return res.json({ channelId, channelTitle: channelData.items?.[0]?.snippet?.title || '', videos: [] });
+    }
+    const videosRes = await fetch(`${base}/videos?part=snippet,contentDetails,statistics&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`);
+    const videosData = await videosRes.json();
+    const parseDuration = (s) => {
+      if (!s || typeof s !== 'string') return null;
+      const match = s.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+      if (!match) return null;
+      const h = parseInt(match[1] || '0', 10);
+      const m = parseInt(match[2] || '0', 10);
+      const sec = parseInt(match[3] || '0', 10);
+      return h * 3600 + m * 60 + sec;
+    };
+    const videos = (videosData.items || []).map((v) => ({
+      videoId: v.id,
+      title: v.snippet?.title || '',
+      description: v.snippet?.description || '',
+      transcript: null,
+      duration: v.contentDetails?.duration || null,
+      durationSeconds: parseDuration(v.contentDetails?.duration),
+      releaseDate: v.snippet?.publishedAt || null,
+      viewCount: parseInt(v.statistics?.viewCount || '0', 10),
+      likeCount: parseInt(v.statistics?.likeCount || '0', 10),
+      commentCount: parseInt(v.statistics?.commentCount || '0', 10),
+      videoUrl: `https://www.youtube.com/watch?v=${v.id}`,
+      thumbnail: v.snippet?.thumbnails?.high?.url || v.snippet?.thumbnails?.default?.url || null,
+    }));
+    res.json({ channelId, channelTitle: channelData.items?.[0]?.snippet?.title || '', videos });
+  } catch (err) {
+    console.error('YouTube channel error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch channel' });
+  }
 });
 
 app.get('/api/status', async (req, res) => {
@@ -47,7 +124,7 @@ app.get('/api/status', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, password, email } = req.body;
+    const { username, password, email, firstName, lastName } = req.body;
     if (!username || !password)
       return res.status(400).json({ error: 'Username and password required' });
     const name = String(username).trim().toLowerCase();
@@ -58,6 +135,8 @@ app.post('/api/users', async (req, res) => {
       username: name,
       password: hashed,
       email: email ? String(email).trim().toLowerCase() : null,
+      firstName: firstName ? String(firstName).trim() : null,
+      lastName: lastName ? String(lastName).trim() : null,
       createdAt: new Date().toISOString(),
     });
     res.json({ ok: true });
@@ -76,7 +155,12 @@ app.post('/api/users/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid password' });
-    res.json({ ok: true, username: name });
+    res.json({
+      ok: true,
+      username: name,
+      firstName: user.firstName || null,
+      lastName: user.lastName || null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -203,6 +287,72 @@ app.get('/api/messages', async (req, res) => {
     res.json(msgs);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Image generation (Gemini) ──────────────────────────────────────────────
+
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const { prompt, anchorImageBase64, anchorMimeType } = req.body;
+    if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured' });
+
+    const parts = [{ text: prompt }];
+    if (anchorImageBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: anchorMimeType || 'image/png',
+          data: anchorImageBase64.replace(/^data:image\/\w+;base64,/, ''),
+        },
+      });
+    }
+
+    // Image generation requires a model that supports IMAGE output (e.g. Gemini 2.5 Flash Image)
+    const imageModel = 'gemini-2.5-flash-image';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent`;
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        responseMimeType: 'text/plain',
+      },
+    };
+
+    const genRes = await fetch(`${url}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const genData = await genRes.json();
+
+    if (!genRes.ok) {
+      const errMsg = genData.error?.message || genData.error?.status || JSON.stringify(genData.error || genData);
+      console.error('Image API error:', genRes.status, errMsg);
+      return res.status(genRes.status >= 500 ? 503 : 400).json({
+        error: errMsg,
+        hint: 'Image generation uses gemini-2.5-flash-image. Ensure your API key has access in Google AI Studio (aistudio.google.com).',
+      });
+    }
+
+    const candidate = genData.candidates?.[0];
+    if (!candidate) {
+      const errMsg = genData.error?.message || 'No candidate in response';
+      return res.status(400).json({ error: errMsg });
+    }
+    const part = candidate.content?.parts?.find((p) => p.inlineData);
+    if (!part?.inlineData?.data) {
+      return res.status(400).json({
+        error: 'No image in response. The model may not support image generation with your request.',
+        hint: 'Try a text-only prompt or ensure you are using an image-capable model in Google AI Studio.',
+      });
+    }
+    res.json({ imageBase64: part.inlineData.data, mimeType: part.inlineData.mimeType || 'image/png' });
+  } catch (err) {
+    console.error('Image generation error:', err);
+    res.status(500).json({ error: err.message || 'Image generation failed' });
   }
 });
 
