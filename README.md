@@ -53,6 +53,9 @@ After logging in, the app has two tabs: **Chat** and **YouTube Channel Download*
 
   **Optional — YouTube Data API:** For direct API fetching (e.g. `GET /api/youtube/channel` or CLI scripts), set `YOUTUBE_API_KEY` in the backend environment. To refresh the sample file with live data: `YOUTUBE_API_KEY=your_key node scripts/fetch-veritasium.js`. To fetch any channel to a JSON file: `YOUTUBE_API_KEY=your_key node scripts/fetch-channel.js "<channel_url>" [maxVideos] [output_file]`. The API and scripts use `server/youtubeChannel.js` (parse channel URL, fetch via YouTube Data API, real video IDs and URLs).
 
+  **"Gemini API key not set on server" / sample data shown instead of real download?**  
+  The app sends requests to the **backend** (local or deployed). Your local `.env` is only read by a **local** server. If you use the **deployed** app (e.g. `REACT_APP_API_URL=https://...onrender.com`), add **REACT_APP_GEMINI_API_KEY** (or GEMINI_API_KEY) in your host's environment: **Render** → your backend service → **Environment** → Add variable `REACT_APP_GEMINI_API_KEY` = your key → **Save** (and redeploy if needed). To **verify** the backend sees the key, open `https://your-backend.onrender.com/api/status` and check that `geminiKeyConfigured` is `true`; if it is `false`, fix the env var name or redeploy. To use your local key, run the app against the local backend: set `REACT_APP_API_URL=http://localhost:3001` in `.env`, run `npm run server` locally, then use the app; the local server will read `.env` and use your Gemini key.
+
 - **Sample data**: `public/veritasium_channel_data.json` contains 10 real Veritasium videos (real video IDs, titles, and working YouTube links). When the API key is not set, the app uses this sample so **play_video** and download work with real links.
 
 - **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_channel_data.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
@@ -217,7 +220,7 @@ Use the app at **http://localhost:3000**. The React dev server proxies `/api` re
 ### Verify Backend
 
 - http://localhost:3001 – Server status page  
-- http://localhost:3001/api/status – JSON with `usersCount` and `sessionsCount`
+- http://localhost:3001/api/status – JSON with `usersCount`, `sessionsCount`, `geminiKeyConfigured`, and `youtubeApiKeyConfigured` (useful to verify the backend sees your API keys; use your deployed backend URL for production, e.g. `https://your-backend.onrender.com/api/status`)
 
 ## Dependencies
 

@@ -1,5 +1,8 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const fs = require('fs');
+const envPath = path.resolve(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) require('dotenv').config({ path: envPath });
+else require('dotenv').config();
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -36,8 +39,8 @@ app.get('/', (req, res) => {
 });
 
 // YouTube channel (uses shared fetch logic; all video URLs are real)
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const YOUTUBE_API_KEY = (process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY || '').trim() || null;
+const GEMINI_API_KEY = (process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '').trim() || null;
 const { fetchYouTubeChannelData } = require('./youtubeChannel');
 
 app.get('/api/youtube/channel', async (req, res) => {
@@ -61,7 +64,7 @@ app.post('/api/youtube/channel-gemini', async (req, res) => {
     const { channelUrl, maxVideos: rawMax } = req.body;
     const maxVideos = Math.min(100, Math.max(1, parseInt(rawMax || '10', 10)));
     if (!channelUrl || typeof channelUrl !== 'string') return res.status(400).json({ error: 'channelUrl required' });
-    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured (REACT_APP_GEMINI_API_KEY)' });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured. Set REACT_APP_GEMINI_API_KEY (or GEMINI_API_KEY) in the backend environment. For Render: Dashboard → your backend service → Environment → add the variable and redeploy. For local: add it to .env and restart the server.' });
 
     const prompt = `Use Google Search to find the YouTube channel at this URL: ${channelUrl}
 
@@ -136,7 +139,12 @@ app.get('/api/status', async (req, res) => {
   try {
     const usersCount = await db.collection('users').countDocuments();
     const sessionsCount = await db.collection('sessions').countDocuments();
-    res.json({ usersCount, sessionsCount });
+    res.json({
+      usersCount,
+      sessionsCount,
+      geminiKeyConfigured: !!GEMINI_API_KEY,
+      youtubeApiKeyConfigured: !!YOUTUBE_API_KEY,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
