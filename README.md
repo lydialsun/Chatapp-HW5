@@ -60,7 +60,7 @@ After logging in, the app has two tabs: **Chat** and **YouTube Channel Download*
 
   - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
   - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, durationSeconds) vs time; chart is shown in chat with enlarge and download.
-  - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title. The AI receives the full list of videos (title + videoUrl) in context and must use only those URLs or the tool result — it never invents links. Sample data uses real Veritasium video URLs.
+  - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title. The AI receives the full list of videos (title + videoUrl) in context and must use only those URLs or the tool result — it never invents links. If the loaded data has placeholder video IDs (e.g. sample1, sample2), the tool automatically maps them to real Veritasium video URLs so the link always works.
   - **compute_stats_json** — Mean, median, std, min, max for any numeric field in the channel JSON.
 
 ## MongoDB Setup

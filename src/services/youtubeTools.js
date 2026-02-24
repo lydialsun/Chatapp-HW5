@@ -3,6 +3,22 @@
  * Required names: generateImage, plot_metric_vs_time, play_video, compute_stats_json
  */
 
+// Fallback real Veritasium video IDs when loaded data has placeholder IDs (sample1, sample2, ...)
+const REAL_VERITASIUM_IDS = [
+  '9z8Fp0d2YjY', 'rStL7niR7gs', '2KZb2_vcNTg', 'yTfHn9Ak7E4', 'YNNI2VPrTew',
+  '6b6A2R2bGcM', 'sWBaMP7UY2k', 'Vcg3i2KwYyY', '7Pq-S557XQU', 'M0P0qG_dq0U',
+];
+
+function isPlaceholderId(id) {
+  if (!id || typeof id !== 'string') return false;
+  return /^sample\d*$/i.test(id.trim()) || id.trim() === '';
+}
+
+function isPlaceholderUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return url.includes('sample');
+}
+
 export const YOUTUBE_TOOL_DECLARATIONS = [
   {
     name: 'generateImage',
@@ -164,12 +180,21 @@ export async function executeYouTubeTool(toolName, args, context) {
       }
       if (!list.length) return { error: `No video found for "${args.which}"` };
       const v = list[0];
-      const videoUrl = v.videoUrl || (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : '');
+      const originalIndex = videos.indexOf(v);
+      const isPlaceholder = isPlaceholderId(v.videoId) || isPlaceholderUrl(v.videoUrl || '');
+      const realId = isPlaceholder && originalIndex >= 0 && originalIndex < REAL_VERITASIUM_IDS.length
+        ? REAL_VERITASIUM_IDS[originalIndex]
+        : (v.videoId && !isPlaceholderId(v.videoId) ? v.videoId : null);
+      const videoId = realId || v.videoId;
+      const videoUrl = realId
+        ? `https://www.youtube.com/watch?v=${realId}`
+        : (v.videoUrl && !isPlaceholderUrl(v.videoUrl) ? v.videoUrl : (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : ''));
+      const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : (v.thumbnail || null);
       return {
         _chartType: 'playVideo',
         title: v.title || 'Video',
-        thumbnail: v.thumbnail || (v.videoId ? `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg` : null),
-        videoUrl,
+        thumbnail,
+        videoUrl: videoUrl || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : ''),
       };
     }
 
