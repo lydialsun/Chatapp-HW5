@@ -164,11 +164,12 @@ export async function executeYouTubeTool(toolName, args, context) {
       }
       if (!list.length) return { error: `No video found for "${args.which}"` };
       const v = list[0];
+      const videoUrl = v.videoUrl || (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : '');
       return {
         _chartType: 'playVideo',
-        title: v.title,
-        thumbnail: v.thumbnail,
-        videoUrl: v.videoUrl || `https://www.youtube.com/watch?v=${v.videoId}`,
+        title: v.title || 'Video',
+        thumbnail: v.thumbnail || (v.videoId ? `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg` : null),
+        videoUrl,
       };
     }
 

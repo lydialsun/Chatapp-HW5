@@ -392,7 +392,7 @@ export default function Chat({ user, onLogout }) {
       : '';
 
     const jsonContextBlock = useYouTubeTools && videos.length
-      ? `[YouTube channel JSON loaded: "${channelJsonData?.channelTitle || 'Channel'}" with ${videos.length} videos. Fields per video: ${Object.keys(videos[0] || {}).join(', ')}.]\n\n`
+      ? `[YouTube channel JSON loaded: "${channelJsonData?.channelTitle || 'Channel'}" with ${videos.length} videos. Use ONLY these videos and their URLs when answering or calling play_video — never invent a URL.\n\nVideos (index 1-based, title, videoUrl):\n${videos.map((v, i) => `${i + 1}. "${v.title || 'Untitled'}" → ${v.videoUrl || `https://www.youtube.com/watch?v=${v.videoId || ''}`}`).join('\n')}\n]\n\n`
       : '';
 
     const csvPrefix = capturedCsv
