@@ -1,6 +1,20 @@
 # Chat App
 
-A React chatbot with Gemini AI, web search, user auth, MongoDB persistence, and client-side data analysis. Glassmorphism UI with streaming responses, CSV upload, and code execution.
+A React chatbot with Gemini AI, web search, user auth, MongoDB persistence, and client-side data analysis. The UI uses a **casual, relaxing theme** with a soft palette: **pale pink**, **pistachio**, **sage**, and **chicken yellow** on a cream background. Streaming responses, CSV upload, drag-and-drop images, and code execution are supported.
+
+## Design / Theme
+
+The frontend uses a light, calming color palette:
+
+| Color | Hex | Where it appears |
+|-------|-----|------------------|
+| **Pale pink** | `#f8e4eb` | Sidebar tint, error states, blockquotes, result headers |
+| **Pistachio** | `#b8d4a8` | User message bubbles, active session, CSV chip |
+| **Sage** | `#9caf88` | Primary buttons (Send, Log in), focus states, chart bars |
+| **Chicken yellow** | `#f7e7ce` | Attach hover, code blocks, tool-call details |
+| **Cream** | `#fefbf7` | Page background and soft gradients |
+
+Text uses a dark brown (`#3d3a36`) for comfortable contrast on the light background. The theme is applied across the auth screen, chat sidebar, message bubbles, input area, and engagement charts.
 
 ## How It Works
 

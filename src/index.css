@@ -1,4 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Casual, relaxing palette */
+  --pale-pink: #f8e4eb;
+  --pistachio: #b8d4a8;
+  --sage: #9caf88;
+  --chicken-yellow: #f7e7ce;
+  --cream: #fefbf7;
+  --text: #3d3a36;
+  --text-muted: #6b6560;
+  --border-soft: rgba(156, 175, 136, 0.25);
+  --shadow-soft: rgba(61, 58, 54, 0.08);
+}
 
 * {
   box-sizing: border-box;
@@ -15,16 +28,14 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  /* Deep gradient background — glass panels float on top of this */
-  background: #0d1117;
+  background: var(--cream);
   background-image:
-    radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.18) 0%, transparent 55%),
-    radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.14) 0%, transparent 50%),
-    radial-gradient(ellipse at 60% 80%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
-    linear-gradient(160deg, #0d1117 0%, #131929 50%, #0d1230 100%);
+    radial-gradient(ellipse at 15% 30%, rgba(248, 228, 235, 0.6) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 70%, rgba(183, 212, 168, 0.35) 0%, transparent 45%),
+    radial-gradient(ellipse at 60% 20%, rgba(247, 231, 206, 0.5) 0%, transparent 45%),
+    linear-gradient(180deg, #fefbf7 0%, #fdf8f2 50%, #fef9f4 100%);
   background-attachment: fixed;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text);
 }
 
 #root {
