@@ -92,6 +92,15 @@
   font-size: 0.9rem;
 }
 
+.youtube-sample-notice {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(184, 212, 168, 0.35);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text, #3d3a36);
+}
+
 .youtube-result {
   margin-top: 1.25rem;
   padding-top: 1rem;
