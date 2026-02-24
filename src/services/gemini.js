@@ -2,9 +2,39 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CSV_TOOL_DECLARATIONS } from './csvTools';
 import { YOUTUBE_TOOL_DECLARATIONS } from './youtubeTools';
 
-const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY || '');
+// Strip surrounding quotes (e.g. from .env: REACT_APP_GEMINI_API_KEY="AIza...")
+function stripQuotes(s) {
+  if (typeof s !== 'string') return '';
+  const t = s.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
+    return t.slice(1, -1).trim();
+  return t;
+}
+const GEMINI_KEY = stripQuotes(process.env.REACT_APP_GEMINI_API_KEY || '');
+const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
 const MODEL = 'gemini-2.5-flash';
+
+// Keep context under Gemini's 1M token limit: trim history and message sizes.
+const MAX_HISTORY_MESSAGES = 24;
+const MAX_MESSAGE_CHARS = 8000;
+
+function trimHistory(history) {
+  const arr = Array.isArray(history) ? history : [];
+  const trimmed = arr.slice(-MAX_HISTORY_MESSAGES);
+  return trimmed.map((m) => {
+    const text = (m.content || '').toString();
+    const content = text.length <= MAX_MESSAGE_CHARS ? text : text.slice(0, MAX_MESSAGE_CHARS) + '\n\n[... truncated for length ...]';
+    return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
+  });
+}
+
+function trimText(s) {
+  if (typeof s !== 'string') return s;
+  return s.length <= MAX_MESSAGE_CHARS
+    ? s
+    : s.slice(0, MAX_MESSAGE_CHARS) + '\n\n[... truncated for length ...]';
+}
 
 const SEARCH_TOOL = { googleSearch: {} };
 const CODE_EXEC_TOOL = { codeExecution: {} };
@@ -42,10 +72,7 @@ export const streamChat = async function* (history, newMessage, imageParts = [],
     tools,
   });
 
-  const baseHistory = history.map((m) => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content || '' }],
-  }));
+  const baseHistory = trimHistory(history);
 
   const chatHistory = systemInstruction
     ? [
@@ -61,7 +88,7 @@ export const streamChat = async function* (history, newMessage, imageParts = [],
   const chat = model.startChat({ history: chatHistory });
 
   const parts = [
-    { text: newMessage },
+    { text: trimText(newMessage) },
     ...imageParts.map((img) => ({
       inlineData: { mimeType: img.mimeType || 'image/png', data: img.data },
     })),
@@ -136,10 +163,7 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
     tools: [{ functionDeclarations: CSV_TOOL_DECLARATIONS }],
   });
 
-  const baseHistory = history.map((m) => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content || '' }],
-  }));
+  const baseHistory = trimHistory(history);
 
   const chatHistory = systemInstruction
     ? [
@@ -158,8 +182,9 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
   const msgWithContext = csvHeaders?.length
     ? `[CSV columns: ${csvHeaders.join(', ')}]\n\n${newMessage}`
     : newMessage;
+  const trimmedMessage = trimText(msgWithContext);
 
-  let response = (await chat.sendMessage(msgWithContext)).response;
+  let response = (await chat.sendMessage(trimmedMessage)).response;
 
   // Accumulate chart payloads and a log of every tool call made
   const charts = [];
@@ -204,10 +229,7 @@ export const chatWithYouTubeTools = async (history, newMessage, executeFn) => {
     tools: [{ functionDeclarations: YOUTUBE_TOOL_DECLARATIONS }],
   });
 
-  const baseHistory = history.map((m) => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content || '' }],
-  }));
+  const baseHistory = trimHistory(history);
 
   const chatHistory = systemInstruction
     ? [
@@ -222,7 +244,7 @@ export const chatWithYouTubeTools = async (history, newMessage, executeFn) => {
 
   const chat = model.startChat({ history: chatHistory });
 
-  let response = (await chat.sendMessage(newMessage)).response;
+  let response = (await chat.sendMessage(trimText(newMessage))).response;
 
   const charts = [];
   const toolCalls = [];

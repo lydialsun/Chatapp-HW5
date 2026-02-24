@@ -7,12 +7,22 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-const URI = process.env.REACT_APP_MONGODB_URI || process.env.MONGODB_URI || process.env.REACT_APP_MONGO_URI;
+// Strip surrounding quotes from env vars (e.g. REACT_APP_GEMINI_API_KEY="AIza...")
+function stripEnvQuotes(s) {
+  if (typeof s !== 'string') return s;
+  const t = s.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
+    return t.slice(1, -1).trim();
+  return t;
+}
+
+const URI = stripEnvQuotes(process.env.REACT_APP_MONGODB_URI || process.env.MONGODB_URI || process.env.REACT_APP_MONGO_URI || '');
 const DB = 'chatapp';
 
 let db;
@@ -39,9 +49,11 @@ app.get('/', (req, res) => {
 });
 
 // YouTube channel (uses shared fetch logic; all video URLs are real)
-const YOUTUBE_API_KEY = (process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY || '').trim() || null;
-const GEMINI_API_KEY = (process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '').trim() || null;
+const YOUTUBE_API_KEY = stripEnvQuotes(process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY || '') || null;
+const GEMINI_API_KEY = stripEnvQuotes(process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '') || null;
+const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 const { fetchYouTubeChannelData } = require('./youtubeChannel');
+const { scrapeYouTubeChannelData } = require('./youtubeScrape');
 
 app.get('/api/youtube/channel', async (req, res) => {
   try {
@@ -58,13 +70,38 @@ app.get('/api/youtube/channel', async (req, res) => {
   }
 });
 
+// Assignment-compatible download route (YouTube Data API only; no yt-dlp)
+app.post('/api/youtube/download-channel', async (req, res) => {
+  try {
+    const { channelUrl, maxVideos: rawMax } = req.body || {};
+    const maxVideos = Math.min(100, Math.max(1, parseInt(rawMax || '10', 10)));
+    if (!channelUrl || typeof channelUrl !== 'string') return res.status(400).json({ error: 'channelUrl required' });
+    const payload = await scrapeYouTubeChannelData(channelUrl, maxVideos);
+
+    res.setHeader('Content-Disposition', 'attachment; filename=channel_data.json');
+    return res.json(payload);
+  } catch (err) {
+    console.error('YouTube download-channel error:', err);
+    const msg = err.message || 'Failed to download channel data';
+    const status =
+      msg.includes('ytInitialData not found') || msg.includes('Invalid YouTube channel URL')
+        ? 400
+        : msg.includes('No videos found')
+          ? 404
+          : msg.includes('parse')
+            ? 400
+            : 500;
+    return res.status(status).json({ error: err.message || 'Failed to download channel data' });
+  }
+});
+
 // YouTube channel via Gemini + Google Search (no YouTube API key required)
 app.post('/api/youtube/channel-gemini', async (req, res) => {
   try {
     const { channelUrl, maxVideos: rawMax } = req.body;
     const maxVideos = Math.min(100, Math.max(1, parseInt(rawMax || '10', 10)));
     if (!channelUrl || typeof channelUrl !== 'string') return res.status(400).json({ error: 'channelUrl required' });
-    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured. Set REACT_APP_GEMINI_API_KEY (or GEMINI_API_KEY) in the backend environment. For Render: Dashboard → your backend service → Environment → add the variable and redeploy. For local: add it to .env and restart the server.' });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured', code: 'GEMINI_KEY_NOT_CONFIGURED' });
 
     const prompt = `Use Google Search to find the YouTube channel at this URL: ${channelUrl}
 
@@ -86,6 +123,11 @@ Respond with ONLY a single valid JSON object, no other text or markdown. Use thi
 {"channelId":"","channelTitle":"","videos":[{"videoId":"","title":"","description":"","transcript":null,"duration":"","durationSeconds":null,"releaseDate":"","viewCount":0,"likeCount":0,"commentCount":0,"videoUrl":"","thumbnail":""}]}
 If you cannot find a channel or videos, return {"channelId":"","channelTitle":"","videos":[]}.`;
 
+    // Gemini does not allow responseMimeType (e.g. application/json) when using tools (google_search).
+    // We ask for JSON in the prompt and parse the text response.
+    const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
+    delete generationConfig.responseMimeType; // ensure never sent with tools
+
     const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const genRes = await fetch(genUrl, {
       method: 'POST',
@@ -93,29 +135,40 @@ If you cannot find a channel or videos, return {"channelId":"","channelTitle":""
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
+        generationConfig,
       }),
     });
     const genData = await genRes.json();
 
     if (!genRes.ok) {
-      const errMsg = genData.error?.message || JSON.stringify(genData.error || genData);
+      const raw = genData.error;
+      const errMsg = raw?.message || (typeof raw === 'string' ? raw : JSON.stringify(raw || genData));
       console.error('Gemini channel error:', genRes.status, errMsg);
-      return res.status(genRes.status >= 500 ? 503 : 400).json({ error: errMsg });
+      return res.status(genRes.status >= 500 ? 503 : genRes.status === 400 ? 400 : 502).json({
+        error: errMsg,
+        code: genRes.status === 403 ? 'GEMINI_FORBIDDEN' : genRes.status === 400 ? 'GEMINI_BAD_REQUEST' : 'GEMINI_ERROR',
+      });
     }
 
     const text = genData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text || typeof text !== 'string') {
-      return res.status(500).json({ error: 'No text in Gemini response' });
+      const blockReason = genData.candidates?.[0]?.finishReason || genData.promptFeedback?.blockReason;
+      const hint = blockReason ? ` (finishReason: ${blockReason})` : '';
+      return res.status(500).json({ error: `No text in Gemini response${hint}. The model may have been blocked or returned no content.` });
     }
 
     let data;
     try {
-      const cleaned = text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/m, '$1').trim();
+      const raw = text.trim();
+      const firstBrace = raw.indexOf('{');
+      if (firstBrace === -1) throw new Error('No JSON object in response');
+      let depth = 0;
+      let end = firstBrace;
+      for (let i = firstBrace; i < raw.length; i++) {
+        if (raw[i] === '{') depth++;
+        else if (raw[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      const cleaned = raw.slice(firstBrace, end);
       data = JSON.parse(cleaned);
     } catch (e) {
       console.error('Gemini channel JSON parse error:', e.message, text.slice(0, 500));
@@ -155,8 +208,8 @@ app.get('/api/status', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, email, firstName, lastName } = req.body;
-    if (!username || !password)
-      return res.status(400).json({ error: 'Username and password required' });
+    if (!username || !password || !firstName || !lastName)
+      return res.status(400).json({ error: 'Username, password, firstName, and lastName are required' });
     const name = String(username).trim().toLowerCase();
     const existing = await db.collection('users').findOne({ username: name });
     if (existing) return res.status(400).json({ error: 'Username already exists' });
@@ -165,8 +218,8 @@ app.post('/api/users', async (req, res) => {
       username: name,
       password: hashed,
       email: email ? String(email).trim().toLowerCase() : null,
-      firstName: firstName ? String(firstName).trim() : null,
-      lastName: lastName ? String(lastName).trim() : null,
+      firstName: String(firstName).trim(),
+      lastName: String(lastName).trim(),
       createdAt: new Date().toISOString(),
     });
     res.json({ ok: true });
@@ -187,6 +240,7 @@ app.post('/api/users/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Invalid password' });
     res.json({
       ok: true,
+      _id: user._id?.toString(),
       username: name,
       firstName: user.firstName || null,
       lastName: user.lastName || null,
@@ -320,69 +374,56 @@ app.get('/api/messages', async (req, res) => {
   }
 });
 
-// ── Image generation (Gemini) ──────────────────────────────────────────────
-
-app.post('/api/generate-image', async (req, res) => {
+async function handleGenerateImage(req, res) {
   try {
     const { prompt, anchorImageBase64, anchorMimeType } = req.body;
     if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'prompt required' });
-    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured' });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured', code: 'GEMINI_KEY_NOT_CONFIGURED' });
+    if (!ai) return res.status(503).json({ error: 'Gemini client unavailable', code: 'GEMINI_CLIENT_UNAVAILABLE' });
 
-    const parts = [{ text: prompt }];
+    const parts = [{ text: prompt.trim() }];
     if (anchorImageBase64) {
       parts.push({
         inlineData: {
           mimeType: anchorMimeType || 'image/png',
-          data: anchorImageBase64.replace(/^data:image\/\w+;base64,/, ''),
+          data: String(anchorImageBase64).replace(/^data:image\/\w+;base64,/, ''),
         },
       });
     }
 
-    // Image generation requires a model that supports IMAGE output (e.g. Gemini 2.5 Flash Image)
-    const imageModel = 'gemini-2.5-flash-image';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent`;
-    const body = {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
       contents: [{ role: 'user', parts }],
-      generationConfig: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        responseMimeType: 'text/plain',
+      config: {
+        response_modalities: ['TEXT', 'IMAGE'],
       },
-    };
-
-    const genRes = await fetch(`${url}?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
     });
-    const genData = await genRes.json();
 
-    if (!genRes.ok) {
-      const errMsg = genData.error?.message || genData.error?.status || JSON.stringify(genData.error || genData);
-      console.error('Image API error:', genRes.status, errMsg);
-      return res.status(genRes.status >= 500 ? 503 : 400).json({
-        error: errMsg,
-        hint: 'Image generation uses gemini-2.5-flash-image. Ensure your API key has access in Google AI Studio (aistudio.google.com).',
-      });
-    }
+    const responseParts = response?.candidates?.[0]?.content?.parts ?? [];
+    const imgPart = responseParts.find((p) => p?.inline_data?.data || p?.inlineData?.data);
+    const bytes = imgPart?.inline_data?.data || imgPart?.inlineData?.data;
 
-    const candidate = genData.candidates?.[0];
-    if (!candidate) {
-      const errMsg = genData.error?.message || 'No candidate in response';
-      return res.status(400).json({ error: errMsg });
-    }
-    const part = candidate.content?.parts?.find((p) => p.inlineData);
-    if (!part?.inlineData?.data) {
+    if (!bytes) {
       return res.status(400).json({
-        error: 'No image in response. The model may not support image generation with your request.',
-        hint: 'Try a text-only prompt or ensure you are using an image-capable model in Google AI Studio.',
+        error: 'No image in response. The model may not support image generation for this project/prompt.',
+        debugParts: responseParts,
       });
     }
-    res.json({ imageBase64: part.inlineData.data, mimeType: part.inlineData.mimeType || 'image/png' });
+
+    let imageBase64;
+    if (typeof bytes === 'string') imageBase64 = bytes;
+    else imageBase64 = Buffer.from(bytes).toString('base64');
+    return res.json({ imageBase64, mimeType: 'image/png' });
   } catch (err) {
     console.error('Image generation error:', err);
-    res.status(500).json({ error: err.message || 'Image generation failed' });
+    const msg = err?.message || 'Image generation failed';
+    const status = msg.includes('not found') || msg.includes('No image in response') ? 400 : 500;
+    res.status(status).json({ error: msg });
   }
-});
+}
+
+app.post('/api/generate-image', handleGenerateImage);
+app.post('/api/tools/generateImage', handleGenerateImage);
 
 // ─────────────────────────────────────────────────────────────────────────────
 

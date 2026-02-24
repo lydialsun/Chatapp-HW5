@@ -19,7 +19,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('chat');
 
   const handleLogin = (userData) => {
-    const u = typeof userData === 'string' ? { username: userData, firstName: null, lastName: null } : userData;
+    const u = typeof userData === 'string'
+      ? { _id: null, username: userData, firstName: null, lastName: null }
+      : { _id: userData?._id || null, username: userData.username, firstName: userData.firstName || null, lastName: userData.lastName || null };
     localStorage.setItem('chatapp_user', JSON.stringify(u));
     setUser(u);
   };

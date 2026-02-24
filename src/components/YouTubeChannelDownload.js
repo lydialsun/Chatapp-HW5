@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { fetchYouTubeChannelViaGemini } from '../services/mongoApi';
 import './YouTubeChannelDownload.css';
 
-const SAMPLE_JSON_URL = '/veritasium_channel_data.json';
+const SAMPLE_JSON_URL = '/veritasium_10.json';
 
 function progressInterval(setProgress, done) {
   const steps = [15, 30, 45, 60, 75, 90];
@@ -36,27 +36,33 @@ export default function YouTubeChannelDownload() {
     try {
       const max = Math.min(100, Math.max(1, maxVideos));
       const data = await fetchYouTubeChannelViaGemini(channelUrl, max);
+      const normalized = data?.channel
+        ? { channelTitle: data.channel.channelTitle || '', videos: data.videos || [] }
+        : data;
       doneRef.current = true;
       clear();
       setProgress(100);
-      setResult(data);
+      setResult(normalized);
     } catch (err) {
       doneRef.current = true;
       clear();
-      const msg = (err.message || '').toLowerCase();
-      const isGeminiError = msg.includes('gemini') || msg.includes('not configured') || msg.includes('503');
+      const serverMessage = err.message || '';
+      const isScraperFailure =
+        serverMessage.includes('ytInitialData not found') ||
+        serverMessage.includes('No videos found') ||
+        serverMessage.includes('Invalid YouTube channel URL') ||
+        serverMessage.includes('parse');
       try {
         const res = await fetch(SAMPLE_JSON_URL);
         if (!res.ok) throw new Error('Sample not found');
         const sample = await res.json();
-        setResult({ ...sample, _sampleFallback: true });
-        setError('');
+        const normalizedSample = sample?.channel
+          ? { channelTitle: sample.channel.channelTitle || '', videos: sample.videos || [] }
+          : sample;
+        setResult({ ...normalizedSample, _sampleFallback: true, _fallbackReason: isScraperFailure ? 'scrape_failed' : 'other' });
+        setError(serverMessage || 'Download failed');
       } catch (sampleErr) {
-        if (isGeminiError) {
-          setError('Gemini API key is not set on the server. Add REACT_APP_GEMINI_API_KEY in your backend environment. Sample data could not be loaded.');
-        } else {
-          setError(err.message || 'Download failed');
-        }
+        setError(serverMessage || 'Download failed');
         setResult(null);
       }
     } finally {
@@ -67,7 +73,7 @@ export default function YouTubeChannelDownload() {
 
   const handleSaveFile = () => {
     if (!result) return;
-    const { _sampleFallback, ...data } = result;
+    const { _sampleFallback, _fallbackReason, ...data } = result;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -81,7 +87,7 @@ export default function YouTubeChannelDownload() {
       <div className="youtube-download-card">
         <h2>YouTube Channel Download</h2>
         <p className="youtube-download-desc">
-          Enter a YouTube channel URL to download video metadata using Gemini and Google Search (no YouTube API key required).
+          Enter a YouTube channel URL to download video metadata using YouTube Data API v3.
           Metadata includes: title, description, transcript (if available), duration, release date, view count, like count, comment count, and video URL.
           Data is saved to a JSON file you can download.
         </p>
@@ -118,7 +124,7 @@ export default function YouTubeChannelDownload() {
             <div className="youtube-progress-bar">
               <div className="youtube-progress-fill" style={{ width: `${progress}%` }} />
             </div>
-            <p className="youtube-progress-label">Fetching metadata via Gemini and Google Search…</p>
+            <p className="youtube-progress-label">Fetching metadata via YouTube Data API…</p>
           </div>
         )}
 
@@ -128,7 +134,9 @@ export default function YouTubeChannelDownload() {
           <div className="youtube-result">
             {result._sampleFallback && (
               <p className="youtube-sample-notice">
-                Gemini API key not set on server; showing sample Veritasium data. You can still use this in Chat or download it.
+                {result._fallbackReason === 'scrape_failed'
+                  ? 'Could not scrape channel data right now; showing sample Veritasium data. You can still use this in Chat or download it.'
+                  : 'Download failed; showing sample Veritasium data so you can still use it in Chat or download it.'}
               </p>
             )}
             <p><strong>{result.channelTitle}</strong> — {result.videos?.length ?? 0} videos</p>

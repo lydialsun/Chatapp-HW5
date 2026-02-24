@@ -14,7 +14,20 @@ const api = async (path, options = {}) => {
     ...options,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(text || res.statusText);
+  if (!res.ok) {
+    let message = text || res.statusText;
+    let code;
+    try {
+      const json = JSON.parse(text);
+      if (json.error) message = typeof json.error === 'string' ? json.error : (json.error.message || JSON.stringify(json.error));
+      code = json.code;
+    } catch (_) {}
+    const err = new Error(message);
+    err.status = res.status;
+    err.body = text;
+    err.code = code;
+    throw err;
+  }
   return text ? JSON.parse(text) : {};
 };
 
@@ -34,6 +47,7 @@ export const findUser = async (username, password) => {
   });
   if (!data.ok) return null;
   return {
+    _id: data._id || null,
     username: data.username,
     firstName: data.firstName || null,
     lastName: data.lastName || null,
@@ -83,9 +97,9 @@ export const fetchYouTubeChannel = async (channelUrl, maxVideos = 10) => {
   return api(`/api/youtube/channel?url=${encodeURIComponent(channelUrl)}&maxVideos=${maxVideos}`);
 };
 
-/** Fetch channel video metadata via Gemini + Google Search (no YouTube API key). */
+/** Fetch channel video metadata via backend scraper (no API key). */
 export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) => {
-  return api('/api/youtube/channel-gemini', {
+  return api('/api/youtube/download-channel', {
     method: 'POST',
     body: JSON.stringify({ channelUrl, maxVideos }),
   });
@@ -94,7 +108,7 @@ export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) =
 // ── Image generation ────────────────────────────────────────────────────────
 
 export const generateImage = async (prompt, anchorImageBase64 = null, anchorMimeType = 'image/png') => {
-  return api('/api/generate-image', {
+  return api('/api/tools/generateImage', {
     method: 'POST',
     body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
   });

@@ -3,20 +3,22 @@
  * Required names: generateImage, plot_metric_vs_time, play_video, compute_stats_json
  */
 
-// Fallback real Veritasium video IDs when loaded data has placeholder IDs (sample1, sample2, ...)
+// Fallback real Veritasium video IDs when loaded data has placeholder IDs (sample1, -example, etc.)
 const REAL_VERITASIUM_IDS = [
-  '9z8Fp0d2YjY', 'rStL7niR7gs', '2KZb2_vcNTg', 'yTfHn9Ak7E4', 'YNNI2VPrTew',
-  '6b6A2R2bGcM', 'sWBaMP7UY2k', 'Vcg3i2KwYyY', '7Pq-S557XQU', 'M0P0qG_dq0U',
+  'NIk_0AW5hFU', 'ZMByI4s-D-Y', 'AeJ9q45PfD0', 'pTn6Ewhb27k', '97t7Xj_iBv0',
+  'sWBaMP7UY2k', 'oI_X2cMHNe0', 'rStL7niR7gs', 'BZbChKzedEk', '9z8Fp0d2YjY',
 ];
 
 function isPlaceholderId(id) {
   if (!id || typeof id !== 'string') return false;
-  return /^sample\d*$/i.test(id.trim()) || id.trim() === '';
+  const s = id.trim();
+  return s === '' || /^sample\d*$/i.test(s) || /-example$/i.test(s) || s.includes('-example');
 }
 
 function isPlaceholderUrl(url) {
   if (!url || typeof url !== 'string') return false;
-  return url.includes('sample');
+  const u = url.toLowerCase();
+  return u.includes('sample') || u.includes('-example') || u.includes('proxy');
 }
 
 export const YOUTUBE_TOOL_DECLARATIONS = [
@@ -49,12 +51,12 @@ export const YOUTUBE_TOOL_DECLARATIONS = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        metricField: {
+        metric: {
           type: 'STRING',
           description: 'Exact field name from the channel JSON, e.g. viewCount, likeCount, commentCount, durationSeconds.',
         },
       },
-      required: ['metricField'],
+      required: ['metric'],
     },
   },
   {
@@ -66,12 +68,16 @@ export const YOUTUBE_TOOL_DECLARATIONS = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        which: {
+        selectorType: {
           type: 'STRING',
-          description: 'How to select the video: "first", "last", "most viewed", "least viewed", or the exact video title (or a substring that matches one video).',
+          description: 'How to select a video: "title", "ordinal", or "most_viewed".',
+        },
+        selectorValue: {
+          type: 'STRING',
+          description: 'For title: substring of title; for ordinal: 1-based index as string/number; for most_viewed: optional and ignored.',
         },
       },
-      required: ['which'],
+      required: ['selectorType'],
     },
   },
   {
@@ -142,7 +148,7 @@ export async function executeYouTubeTool(toolName, args, context) {
     }
 
     case 'plot_metric_vs_time': {
-      const field = resolveNumericField(videos, args.metricField || 'viewCount');
+      const field = resolveNumericField(videos, args.metric || args.metricField || 'viewCount');
       const withDate = videos
         .map((v) => {
           const date = v.releaseDate || v.publishedAt || v.published;
@@ -157,7 +163,17 @@ export async function executeYouTubeTool(toolName, args, context) {
     }
 
     case 'play_video': {
-      const which = (args.which || '').toLowerCase().trim();
+      const selectorType = (args.selectorType || '').toLowerCase().trim();
+      const selectorValueRaw = args.selectorValue ?? args.which ?? '';
+      const selectorValue = String(selectorValueRaw).toLowerCase().trim();
+      const which =
+        selectorType === 'most_viewed'
+          ? 'most viewed'
+          : selectorType === 'ordinal'
+            ? selectorValue
+            : selectorType === 'title'
+              ? selectorValue
+              : selectorValue;
       let list = [...videos];
       if (which === 'first' || which === '1st' || which === '1') {
         list = list.slice(0, 1);
@@ -195,6 +211,8 @@ export async function executeYouTubeTool(toolName, args, context) {
         title: v.title || 'Video',
         thumbnail,
         videoUrl: videoUrl || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : ''),
+        viewCount: v.viewCount ?? 0,
+        publishedAt: v.releaseDate || v.publishedAt || null,
       };
     }
 
@@ -207,6 +225,7 @@ export async function executeYouTubeTool(toolName, args, context) {
       const mean = sum / vals.length;
       const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
       return {
+        _chartType: 'statsJson',
         field,
         count: vals.length,
         mean: Math.round(mean * 100) / 100,

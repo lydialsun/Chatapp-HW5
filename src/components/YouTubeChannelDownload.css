@@ -1,7 +1,9 @@
 .youtube-download-page {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 2rem;
 }
@@ -14,6 +16,7 @@
   max-width: 520px;
   width: 100%;
   box-shadow: 0 8px 32px var(--shadow-soft, rgba(61, 58, 54, 0.08));
+  margin: auto;
 }
 
 .youtube-download-card h2 {

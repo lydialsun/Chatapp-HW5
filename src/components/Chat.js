@@ -16,6 +16,7 @@ import EngagementChart from './EngagementChart';
 import MetricVsTimeChart from './MetricVsTimeChart';
 import PlayVideoCard from './PlayVideoCard';
 import GeneratedImage from './GeneratedImage';
+import StatsJsonCard from './StatsJsonCard';
 import './Chat.css';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,6 +51,26 @@ const parseCSV = (text) => {
 
   return { headers, rowCount, preview, base64, truncated };
 };
+
+// Normalize channel JSON: accept snake_case (video_url, video_id, etc.) and ensure camelCase for tools
+function normalizeChannelVideos(videos) {
+  if (!Array.isArray(videos)) return [];
+  return videos.map((v) => ({
+    videoId: v.videoId ?? v.video_id,
+    title: v.title,
+    description: v.description,
+    transcript: v.transcript,
+    duration: v.duration,
+    durationSeconds: v.durationSeconds ?? (typeof v.duration_seconds === 'number' ? v.duration_seconds : undefined),
+    releaseDate: v.releaseDate ?? v.release_date,
+    viewCount: v.viewCount ?? v.view_count,
+    likeCount: v.likeCount ?? v.like_count,
+    commentCount: v.commentCount ?? v.comment_count,
+    videoUrl: v.videoUrl ?? v.video_url,
+    thumbnail: v.thumbnail ?? v.thumbnail_url,
+    ...v,
+  }));
+}
 
 // Extract plain text from a message (for history only — never returns base64)
 const messageText = (m) => {
@@ -129,6 +150,7 @@ export default function Chat({ user, onLogout }) {
   const [sessionSlimCsv, setSessionSlimCsv] = useState(null);
   const [channelJsonData, setChannelJsonData] = useState(null);
   const [channelJsonFileName, setChannelJsonFileName] = useState(null);
+  const [channelLoadNotice, setChannelLoadNotice] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -165,6 +187,34 @@ export default function Chat({ user, onLogout }) {
     setMessages([]);
     loadMessages(activeSessionId).then(setMessages);
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (activeSessionId !== 'new') return;
+    if (messages.length > 0) return;
+    const firstName = user?.firstName || user?.username || 'there';
+    setMessages([
+      {
+        id: `welcome-${Date.now()}`,
+        role: 'model',
+        content: `Hi ${firstName}, I can help analyze YouTube channel data, generate images, plot metrics over time, play videos, and compute stats.`,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  }, [activeSessionId, messages.length, user?.firstName, user?.username]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('youtube_channel_data');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const videos = normalizeChannelVideos(parsed?.videos || []);
+      if (!Array.isArray(videos) || !videos.length) return;
+      setChannelJsonData({ channelTitle: parsed?.channelTitle || parsed?.channel?.channelTitle || '', videos });
+      setChannelJsonFileName(parsed?.fileName || 'youtube_channel_data.json');
+    } catch {
+      // Ignore malformed localStorage payloads.
+    }
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -244,12 +294,17 @@ export default function Chat({ user, onLogout }) {
       try {
         const text = await fileToText(jsonFiles[0]);
         const data = JSON.parse(text);
-        const videos = data.videos || (Array.isArray(data) ? data : []);
+        const rawVideos = data?.videos;
+        if (!Array.isArray(rawVideos)) throw new Error('JSON must include a "videos" array');
+        const videos = normalizeChannelVideos(rawVideos);
         const channelTitle = data.channelTitle || data.channel_title || '';
         setChannelJsonData({ channelTitle, videos });
         setChannelJsonFileName(jsonFiles[0].name);
+        setChannelLoadNotice(`Loaded channel data: ${videos.length} videos`);
+        localStorage.setItem('youtube_channel_data', JSON.stringify({ channelTitle, videos, fileName: jsonFiles[0].name }));
       } catch (err) {
         console.error('Invalid JSON file', err);
+        setChannelLoadNotice('Invalid JSON. Expected shape: { "videos": [ ... ] }');
       }
     }
 
@@ -293,12 +348,17 @@ export default function Chat({ user, onLogout }) {
       try {
         const text = await fileToText(jsonFiles[0]);
         const data = JSON.parse(text);
-        const videos = data.videos || (Array.isArray(data) ? data : []);
+        const rawVideos = data?.videos;
+        if (!Array.isArray(rawVideos)) throw new Error('JSON must include a "videos" array');
+        const videos = normalizeChannelVideos(rawVideos);
         const channelTitle = data.channelTitle || data.channel_title || '';
         setChannelJsonData({ channelTitle, videos });
         setChannelJsonFileName(jsonFiles[0].name);
+        setChannelLoadNotice(`Loaded channel data: ${videos.length} videos`);
+        localStorage.setItem('youtube_channel_data', JSON.stringify({ channelTitle, videos, fileName: jsonFiles[0].name }));
       } catch (err) {
         console.error('Invalid JSON file', err);
+        setChannelLoadNotice('Invalid JSON. Expected shape: { "videos": [ ... ] }');
       }
     }
 
@@ -372,7 +432,12 @@ export default function Chat({ user, onLogout }) {
     }
 
     const videos = channelJsonData?.videos ?? [];
-    const useYouTubeTools = videos.length > 0;
+    const wantsImageGeneration =
+      /\b(generate|create|draw|make|paint)\s+(an?\s+)?(image|picture|photo)\b/i.test(text) ||
+      /\bgenerateImage\b/i.test(text) ||
+      /\bimage\s+generation\b/i.test(text) ||
+      (images.length > 0 && /\b(generate|create|draw|style|transform|based on this)\b/i.test(text));
+    const useYouTubeTools = videos.length > 0 || wantsImageGeneration;
 
     const PYTHON_ONLY_KEYWORDS = /\b(regression|scatter|histogram|seaborn|matplotlib|numpy|time.?series|heatmap|box.?plot|violin|distribut|linear.?model|logistic|forecast|trend.?line)\b/i;
     const wantPythonOnly = PYTHON_ONLY_KEYWORDS.test(text);
@@ -384,16 +449,30 @@ export default function Chat({ user, onLogout }) {
 
     // ── Build prompt ─────────────────────────────────────────────────────────
     const userName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.username || '';
-    const userContextLine = userName ? `[User: ${userName}]\n\n` : '';
-
-    const sessionSummary = csvDataSummary || '';
-    const slimCsvBlock = sessionSlimCsv
-      ? `\n\nFull dataset (key columns):\n\`\`\`csv\n${sessionSlimCsv}\n\`\`\``
+    const userContextLine = userName
+      ? `[User: ${userName}]\nThe user you are speaking to is ${userName}.\n\n`
       : '';
 
-    const jsonContextBlock = useYouTubeTools && videos.length
-      ? `[YouTube channel JSON loaded: "${channelJsonData?.channelTitle || 'Channel'}" with ${videos.length} videos. Use ONLY these videos and their URLs when answering or calling play_video — never invent a URL.\n\nVideos (index 1-based, title, videoUrl):\n${videos.map((v, i) => `${i + 1}. "${v.title || 'Untitled'}" → ${v.videoUrl || `https://www.youtube.com/watch?v=${v.videoId || ''}`}`).join('\n')}\n]\n\n`
+    const MAX_CSV_CONTEXT_CHARS = 40000;
+    const sessionSummary = (csvDataSummary || '').length > MAX_CSV_CONTEXT_CHARS
+      ? (csvDataSummary || '').slice(0, MAX_CSV_CONTEXT_CHARS) + '\n\n[... truncated for length ...]'
+      : (csvDataSummary || '');
+    const slimCsv = (sessionSlimCsv || '').length > MAX_CSV_CONTEXT_CHARS
+      ? (sessionSlimCsv || '').slice(0, MAX_CSV_CONTEXT_CHARS) + '\n\n[... truncated ...]'
+      : (sessionSlimCsv || '');
+    const slimCsvBlock = slimCsv
+      ? `\n\nFull dataset (key columns):\n\`\`\`csv\n${slimCsv}\n\`\`\``
       : '';
+
+    const MAX_VIDEOS_IN_PROMPT = 50;
+    const videoListForPrompt = videos.slice(0, MAX_VIDEOS_IN_PROMPT);
+    const videoListSuffix = videos.length > MAX_VIDEOS_IN_PROMPT ? `\n... and ${videos.length - MAX_VIDEOS_IN_PROMPT} more videos (use play_video by title or ordinal).` : '';
+    const jsonContextBlock =
+      useYouTubeTools && videos.length
+        ? `[YouTube channel JSON loaded: "${channelJsonData?.channelTitle || 'Channel'}" with ${videos.length} videos. Use ONLY these videos and their URLs when answering or calling play_video — never invent a URL.\n\nLightweight video metadata (index 1-based):\n${videoListForPrompt.map((v, i) => `${i + 1}. title="${v.title || 'Untitled'}" | publishedAt="${v.releaseDate || v.publishedAt || ''}" | viewCount=${v.viewCount ?? 0} | likeCount=${v.likeCount ?? 0} | commentCount=${v.commentCount ?? 0} | duration="${v.duration || ''}" | video_url="${v.videoUrl || `https://www.youtube.com/watch?v=${v.videoId || ''}`}"`).join('\n')}${videoListSuffix}\n]\n\n`
+        : useYouTubeTools && wantsImageGeneration
+          ? '[No channel data loaded. You have the generateImage tool only — use it to generate an image from the user\'s prompt or from an image they attached.]\n\n'
+          : '';
 
     const csvPrefix = capturedCsv
       ? needsBase64
@@ -703,6 +782,14 @@ ${sessionSummary}${slimCsvBlock}
                 )}
               </div>
 
+              {/* Tool error (e.g. generateImage failed) — show so user sees real message */}
+              {m.toolCalls?.some((tc) => tc.result?.error) && (
+                <div className="chat-tool-error">
+                  <strong>Tool error:</strong>{' '}
+                  {m.toolCalls.find((tc) => tc.result?.error)?.result?.error || 'Something went wrong.'}
+                </div>
+              )}
+
               {/* Tool calls log */}
               {m.toolCalls?.length > 0 && (
                 <details className="tool-calls-details">
@@ -714,7 +801,10 @@ ${sessionSummary}${slimCsvBlock}
                       <div key={i} className="tool-call-item">
                         <span className="tool-call-name">{tc.name}</span>
                         <span className="tool-call-args">{JSON.stringify(tc.args)}</span>
-                        {tc.result && !tc.result._chartType && (
+                        {tc.result?.error && (
+                          <span className="tool-call-result tool-call-error">→ {tc.result.error}</span>
+                        )}
+                        {tc.result && !tc.result._chartType && !tc.result.error && (
                           <span className="tool-call-result">
                             → {JSON.stringify(tc.result).slice(0, 200)}
                             {JSON.stringify(tc.result).length > 200 ? '…' : ''}
@@ -756,6 +846,8 @@ ${sessionSummary}${slimCsvBlock}
                     imageBase64={chart.imageBase64}
                     mimeType={chart.mimeType}
                   />
+                ) : chart._chartType === 'statsJson' ? (
+                  <StatsJsonCard key={ci} stats={chart} />
                 ) : null
               )}
 
@@ -796,7 +888,13 @@ ${sessionSummary}${slimCsvBlock}
               <span className="csv-chip-meta">
                 {channelJsonData.videos?.length ?? 0} videos
               </span>
-              <button className="csv-chip-remove" onClick={() => { setChannelJsonData(null); setChannelJsonFileName(null); }} aria-label="Remove JSON">×</button>
+              <button className="csv-chip-remove" onClick={() => { setChannelJsonData(null); setChannelJsonFileName(null); setChannelLoadNotice(''); localStorage.removeItem('youtube_channel_data'); }} aria-label="Remove JSON">×</button>
+            </div>
+          )}
+          {channelLoadNotice && (
+            <div className="csv-chip" role="status">
+              <span className="csv-chip-icon">ℹ️</span>
+              <span className="csv-chip-name">{channelLoadNotice}</span>
             </div>
           )}
           {/* CSV chip */}

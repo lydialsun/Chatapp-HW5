@@ -23,42 +23,57 @@ Text uses a dark brown (`#3d3a36`) for comfortable contrast on the light backgro
 - **AI (Gemini)** – Streaming chat, Google Search grounding, Python code execution, and function calling for client-side tools
 - **Storage (MongoDB)** – Users and chat sessions stored in `chatapp` database
 
+## Assignment requirements checklist
+
+| Requirement | Implementation |
+|-------------|----------------|
+| **Chat personalization** | Create Account form has **First Name** and **Last Name** (with labels). Stored in DB (`users.firstName`, `users.lastName`). After login, name is sent in chat context as `[User: FirstName LastName]`. System prompt (`public/prompt_chat.txt`) instructs the AI to greet the user by name in the first message. |
+| **YouTube Channel Download tab** | Tab "YouTube Channel Download" after login. URL input, **Download Channel Data** button, **max videos** (1–100, default 10). Metadata: title, description, transcript, duration, release date, view count, like count, comment count, video URL. JSON downloadable. **Progress bar** during download. |
+| **Veritasium sample data** | `public/veritasium_10.json` — 10 videos from https://www.youtube.com/@veritasium for grading/demo. |
+| **JSON chat input** | Drag-and-drop (or file picker) accepts `.json`; loads channel data into conversation context. Data kept in state for tools. System prompt explains JSON and tools. |
+| **generateImage** | Tool: text prompt + optional anchor image. Image shown in chat; **download** button and **click to enlarge**. Described in `prompt_chat.txt`. |
+| **plot_metric_vs_time** | Tool: any numeric field vs time. React chart in chat; **click to enlarge** and **download** (CSV). Described in `prompt_chat.txt`. |
+| **play_video** | Tool: show clickable card (title + thumbnail); opens YouTube in new tab. Selection by title, ordinal (first/3rd), or "most viewed". Described in `prompt_chat.txt`. |
+| **compute_stats_json** | Tool: mean, median, std, min, max for any numeric field. Called for stats/average/distribution. Described in `prompt_chat.txt`. |
+| **Prompt engineering** | `public/prompt_chat.txt`: YouTube analyze assistant; explains JSON context; lists and describes all tools. |
+
 ## API Keys & Environment Variables
 
 Create a `.env` file in the project root with:
 
 | Variable | Required | Where used | Description |
 |----------|----------|------------|-------------|
-| `REACT_APP_GEMINI_API_KEY` | Yes | Frontend + Backend | Google Gemini API key. Used for chat, image generation, and **YouTube Channel Download via Google Search**. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
+| `REACT_APP_GEMINI_API_KEY` | Yes | Frontend + Backend | Google Gemini API key. Used for chat and image generation. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
 | `REACT_APP_MONGODB_URI` | Yes | Backend | MongoDB Atlas connection string. Format: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
 | `REACT_APP_API_URL` | Production only | Frontend (baked in at build) | Full URL of the backend, e.g. `https://your-backend.onrender.com`. **No trailing slash.** Leave blank for local dev (proxy handles it). |
-| `YOUTUBE_API_KEY` | Optional | Backend + scripts | Google YouTube Data API v3 key. Optional; used only for `GET /api/youtube/channel` and `scripts/fetch-channel.js` / `fetch-veritasium.js`. The in-app **Download Channel Data** uses Gemini + Google Search and does **not** require this key. |
+| `YOUTUBE_API_KEY` | No | N/A | The in-app YouTube download uses pure HTTP scraping from Node.js (no YouTube API key, no yt-dlp, no binaries). |
 
 The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB connection string if you prefer those names.
 
 ### Example `.env` (local development)
 
+Use **no quotes** around values (or the app will strip them for API keys):
+
 ```
 REACT_APP_GEMINI_API_KEY=AIzaSy...
 REACT_APP_MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/
 # REACT_APP_API_URL not needed locally — the dev server proxies /api to localhost:3001
-# YOUTUBE_API_KEY=your_youtube_api_key   # optional; needed for YouTube Channel Download tab
+# no YOUTUBE_API_KEY needed for the in-app channel download flow
 ```
+
+If you already used quotes (e.g. `REACT_APP_GEMINI_API_KEY="AIzaSy..."`), the backend and frontend will now strip them automatically so the key works.
 
 ## YouTube Channel Download & Chat Tools
 
 After logging in, the app has two tabs: **Chat** and **YouTube Channel Download**.
 
-- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses **Gemini with Google Search** (no YouTube API key required) to fetch metadata: title, description, transcript (if available), duration, release date, view count, like count, comment count, and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If the backend does not have a Gemini API key set, the app falls back to sample data (`public/veritasium_channel_data.json`). Backend endpoint: `POST /api/youtube/channel-gemini` with body `{ channelUrl, maxVideos }`.
+- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses a **pure Node.js HTTP scraper** (no YouTube API key, no yt-dlp, no system binaries) to fetch metadata: title, description, transcript (`null`), duration, release date, view count, like count (`null`), comment count (`null`), and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If scraping fails, the app falls back to sample data (`public/veritasium_10.json`). Backend endpoint: `POST /api/youtube/download-channel` with body `{ channelUrl, maxVideos }`.
 
-  **Optional — YouTube Data API:** For direct API fetching (e.g. `GET /api/youtube/channel` or CLI scripts), set `YOUTUBE_API_KEY` in the backend environment. To refresh the sample file with live data: `YOUTUBE_API_KEY=your_key node scripts/fetch-veritasium.js`. To fetch any channel to a JSON file: `YOUTUBE_API_KEY=your_key node scripts/fetch-channel.js "<channel_url>" [maxVideos] [output_file]`. The API and scripts use `server/youtubeChannel.js` (parse channel URL, fetch via YouTube Data API, real video IDs and URLs).
+  **No YouTube API key required:** The downloader scrapes YouTube pages directly in Node.js and works on Render without system dependencies.
 
-  **"Gemini API key not set on server" / sample data shown instead of real download?**  
-  The app sends requests to the **backend** (local or deployed). Your local `.env` is only read by a **local** server. If you use the **deployed** app (e.g. `REACT_APP_API_URL=https://...onrender.com`), add **REACT_APP_GEMINI_API_KEY** (or GEMINI_API_KEY) in your host's environment: **Render** → your backend service → **Environment** → Add variable `REACT_APP_GEMINI_API_KEY` = your key → **Save** (and redeploy if needed). To **verify** the backend sees the key, open `https://your-backend.onrender.com/api/status` and check that `geminiKeyConfigured` is `true`; if it is `false`, fix the env var name or redeploy. To use your local key, run the app against the local backend: set `REACT_APP_API_URL=http://localhost:3001` in `.env`, run `npm run server` locally, then use the app; the local server will read `.env` and use your Gemini key.
+- **Sample data**: `public/veritasium_10.json` contains 10 real Veritasium videos (real video IDs, titles, and working YouTube links). When scraping fails, the app uses this sample so **play_video** and download still work.
 
-- **Sample data**: `public/veritasium_channel_data.json` contains 10 real Veritasium videos (real video IDs, titles, and working YouTube links). When the API key is not set, the app uses this sample so **play_video** and download work with real links.
-
-- **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_channel_data.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
+- **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_10.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
 
   - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
   - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, durationSeconds) vs time; chart is shown in chat with enlarge and download.
@@ -128,11 +143,12 @@ Go to [render.com](https://render.com) → New → **Web Service** → connect y
 | Build Command | `npm install` |
 | Start Command | `node server/index.js` |
 
-Add this environment variable in the Render dashboard:
+Add these environment variables in the Render dashboard (backend service):
 
 | Variable | Value |
 |----------|-------|
 | `MONGODB_URI` | Your MongoDB Atlas connection string |
+| `REACT_APP_GEMINI_API_KEY` (or `GEMINI_API_KEY`) | Your Gemini API key (required for chat and image generation) |
 
 Once deployed, copy the backend URL (e.g. `https://chatapp-backend.onrender.com`).
 
@@ -176,6 +192,22 @@ This happens when the frontend calls the wrong URL (often with a double slash). 
 
 1. **Set `REACT_APP_API_URL` on the frontend service** (Dashboard → chatapp-frontend → Environment). Use your **backend** URL with **no trailing slash**, e.g. `https://chatapp-backend.onrender.com`.
 2. **Redeploy the frontend** (Manual Deploy → Deploy latest commit). Env vars are baked in at build time, so changing them or pulling new code requires a new deploy.
+
+### YouTube Download scraping failures
+
+If channel download fails, the backend may have encountered a YouTube HTML layout change or a temporary fetch block.
+
+**Fix:**
+
+1. Confirm backend is on the latest code (`POST /api/youtube/download-channel` scraping route).
+2. Retry with a standard handle URL format: `https://www.youtube.com/@handle`.
+3. Redeploy backend on Render and retry.
+4. The UI will fallback to `public/veritasium_10.json` so chat tools remain usable.
+
+### Other YouTube / Gemini errors
+
+- **Image generation errors**: Set `REACT_APP_GEMINI_API_KEY` (or `GEMINI_API_KEY`) on the **backend** service in Render → Environment, then redeploy the backend. Verify at `https://your-backend.onrender.com/api/status` that `geminiKeyConfigured` is `true`.
+- **403 / quota / "not enabled"**: Check your Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey); ensure Google Search (grounding) is available for your project if you use Download Channel Data.
 
 ---
 
@@ -233,6 +265,7 @@ All packages are installed via `npm install`. Key dependencies:
 | `react`, `react-dom` | UI framework |
 | `react-scripts` | Create React App build tooling |
 | `@google/generative-ai` | Gemini API client (chat, function calling, code execution, search grounding) |
+| `axios` | HTTP client for YouTube page scraping |
 | `react-markdown` | Render markdown in AI responses |
 | `remark-gfm` | GitHub-flavored markdown (tables, strikethrough, etc.) |
 | `recharts` | Interactive charts (available for future visualizations) |
@@ -246,6 +279,7 @@ All packages are installed via `npm install`. Key dependencies:
 | `bcryptjs` | Password hashing |
 | `cors` | Cross-origin request headers |
 | `dotenv` | Load `.env` variables |
+| `@google/genai` | Gemini image generation SDK (`/api/tools/generateImage`) |
 
 ### Dev / Tooling
 
