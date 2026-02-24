@@ -287,28 +287,44 @@ async function handleGenerateImage(req, res) {
     if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured', code: 'GEMINI_KEY_NOT_CONFIGURED' });
     if (!ai) return res.status(503).json({ error: 'Gemini client unavailable', code: 'GEMINI_CLIENT_UNAVAILABLE' });
 
-    const parts = [{ text: prompt.trim() }];
-    const useAnchorImage = typeof anchorImageBase64 === 'string' && anchorImageBase64.trim().length > 0;
-    if (useAnchorImage) {
-      if (typeof anchorImageBase64 !== 'string' || !anchorImageBase64.trim()) {
-        return res.status(400).json({ error: 'Invalid anchorImageBase64', requestId, build: BUILD_VERSION });
-      }
-      const raw = String(anchorImageBase64 || '');
-      const b64 = raw.includes('base64,') ? raw.split('base64,')[1] : raw;
-      const normalizedB64 = (b64 || '').replace(/\s+/g, '');
-      if (!normalizedB64 || normalizedB64.trim().length < 50) {
-        return res.status(400).json({ error: 'Invalid anchorImageBase64', requestId, build: BUILD_VERSION });
-      }
+    const raw = typeof anchorImageBase64 === 'string' ? anchorImageBase64.trim() : '';
+    const b64 = raw.replace(/^data:.*?;base64,/, '').trim();
+    let anchorBytes = null;
+    if (b64.length > 0) {
+      anchorBytes = Buffer.from(b64, 'base64');
+    }
 
-      const bytes = Buffer.from(normalizedB64, 'base64');
-      if (!bytes || bytes.length < 10) {
-        return res.status(400).json({ error: 'Anchor image bytes empty', requestId, build: BUILD_VERSION });
-      }
-      console.log('[generateImage] anchor bytes length', bytes.length, 'mime', anchorMimeType || 'image/png');
+    const useAnchorImage = Boolean(anchorBytes && anchorBytes.length > 0);
+    if (anchorImageBase64 && !useAnchorImage) {
+      return res.status(400).json({
+        error: 'Invalid anchor image: base64 decoded to empty bytes',
+        debug: {
+          rawLen: raw.length,
+          b64Len: b64.length,
+          bytesLen: anchorBytes ? anchorBytes.length : 0,
+        },
+        requestId,
+        build: BUILD_VERSION,
+      });
+    }
+
+    console.log(
+      '[generateImage] anchor rawLen',
+      raw.length,
+      'b64Len',
+      b64.length,
+      'bytesLen',
+      anchorBytes?.length || 0,
+      'mime',
+      anchorMimeType || 'image/png'
+    );
+
+    const parts = [{ text: prompt.trim() }];
+    if (useAnchorImage) {
       parts.push({
-        inlineData: {
-          mimeType: anchorMimeType || 'image/png',
-          data: normalizedB64,
+        inline_data: {
+          mime_type: anchorMimeType || 'image/png',
+          data: anchorBytes,
         },
       });
     }
