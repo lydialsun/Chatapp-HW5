@@ -288,9 +288,22 @@ async function handleGenerateImage(req, res) {
     if (!ai) return res.status(503).json({ error: 'Gemini client unavailable', code: 'GEMINI_CLIENT_UNAVAILABLE' });
 
     const parts = [{ text: prompt.trim() }];
-    if (anchorImageBase64) {
-      const stripped = String(anchorImageBase64).replace(/^data:image\/\w+;base64,/, '');
-      const bytes = Buffer.from(stripped, 'base64');
+    const useAnchorImage = anchorImageBase64 !== undefined && anchorImageBase64 !== null;
+    if (useAnchorImage) {
+      if (typeof anchorImageBase64 !== 'string' || !anchorImageBase64.trim()) {
+        return res.status(400).json({ error: 'Invalid anchorImageBase64', requestId, build: BUILD_VERSION });
+      }
+      const raw = String(anchorImageBase64 || '');
+      const b64 = raw.includes('base64,') ? raw.split('base64,')[1] : raw;
+      if (!b64 || b64.trim().length < 50) {
+        return res.status(400).json({ error: 'Invalid anchorImageBase64', requestId, build: BUILD_VERSION });
+      }
+
+      const bytes = Buffer.from(b64, 'base64');
+      if (!bytes || bytes.length < 10) {
+        return res.status(400).json({ error: 'Anchor image bytes empty', requestId, build: BUILD_VERSION });
+      }
+      console.log('[generateImage] anchor bytes length', bytes.length, 'mime', anchorMimeType || 'image/png');
       parts.push({
         inline_data: {
           mime_type: anchorMimeType || 'image/png',
