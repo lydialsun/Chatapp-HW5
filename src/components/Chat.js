@@ -63,7 +63,11 @@ function normalizeChannelVideos(videos) {
     description: v.description,
     transcript: v.transcript,
     duration: v.duration,
-    durationSeconds: v.durationSeconds ?? (typeof v.duration_seconds === 'number' ? v.duration_seconds : undefined),
+    durationSeconds:
+      v.durationSeconds ??
+      (typeof v.duration_seconds === 'number'
+        ? v.duration_seconds
+        : (typeof v.duration === 'number' ? v.duration : undefined)),
     releaseDate: v.releaseDate ?? v.release_date,
     viewCount: v.viewCount ?? v.view_count,
     likeCount: v.likeCount ?? v.like_count,

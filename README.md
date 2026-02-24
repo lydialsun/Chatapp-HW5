@@ -46,7 +46,6 @@ Create a `.env` file in the project root with:
 | `REACT_APP_GEMINI_API_KEY` | Yes | Frontend + Backend | Google Gemini API key. Used for chat and image generation. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
 | `REACT_APP_MONGODB_URI` | Yes | Backend | MongoDB Atlas connection string. Format: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
 | `REACT_APP_API_URL` | Production only | Frontend (baked in at build) | Full URL of the backend, e.g. `https://your-backend.onrender.com`. **No trailing slash.** Leave blank for local dev (proxy handles it). |
-| `YOUTUBE_API_KEY` | No | N/A | The in-app YouTube download uses pure HTTP scraping from Node.js (no YouTube API key, no yt-dlp, no binaries). |
 
 The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB connection string if you prefer those names.
 
@@ -58,7 +57,6 @@ Use **no quotes** around values (or the app will strip them for API keys):
 REACT_APP_GEMINI_API_KEY=AIzaSy...
 REACT_APP_MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/
 # REACT_APP_API_URL not needed locally — the dev server proxies /api to localhost:3001
-# no YOUTUBE_API_KEY needed for the in-app channel download flow
 ```
 
 If you already used quotes (e.g. `REACT_APP_GEMINI_API_KEY="AIzaSy..."`), the backend and frontend will now strip them automatically so the key works.
@@ -67,7 +65,7 @@ If you already used quotes (e.g. `REACT_APP_GEMINI_API_KEY="AIzaSy..."`), the ba
 
 After logging in, the app has two tabs: **Chat** and **YouTube Channel Download**.
 
-- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses a **pure Node.js HTTP scraper** (no YouTube API key, no yt-dlp, no system binaries) to fetch metadata: title, description, transcript (`null`), duration, release date, view count, like count (`null`), comment count (`null`), and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If scraping fails, the app falls back to sample data (`public/veritasium_10.json`). Backend endpoint: `POST /api/youtube/download-channel` with body `{ channelUrl, maxVideos }`.
+- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses a **pure Node.js HTTP scraper** (no YouTube API key, no yt-dlp, no system binaries) to fetch metadata: title, description, transcript (best-effort; may be `null`), duration (seconds), release date, view count, like count, comment count, and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If scraping fails, the app falls back to sample data (`public/veritasium_10.json`). Backend endpoint: `POST /api/youtube/download-channel` with body `{ channelUrl, maxVideos }`.
 
   **No YouTube API key required:** The downloader scrapes YouTube pages directly in Node.js and works on Render without system dependencies.
 
@@ -76,7 +74,7 @@ After logging in, the app has two tabs: **Chat** and **YouTube Channel Download*
 - **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_10.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
 
   - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
-  - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, durationSeconds) vs time; chart is shown in chat with enlarge and download.
+  - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, duration) vs time; chart is shown in chat with enlarge and download.
   - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title. The AI receives the full list of videos (title + videoUrl) in context and must use only those URLs or the tool result — it never invents links. If the loaded data has placeholder video IDs (e.g. sample1, sample2), the tool automatically maps them to real Veritasium video URLs so the link always works.
   - **compute_stats_json** — Mean, median, std, min, max for any numeric field in the channel JSON.
 
@@ -252,7 +250,7 @@ Use the app at **http://localhost:3000**. The React dev server proxies `/api` re
 ### Verify Backend
 
 - http://localhost:3001 – Server status page  
-- http://localhost:3001/api/status – JSON with `usersCount`, `sessionsCount`, `geminiKeyConfigured`, and `youtubeApiKeyConfigured` (useful to verify the backend sees your API keys; use your deployed backend URL for production, e.g. `https://your-backend.onrender.com/api/status`)
+- http://localhost:3001/api/status – JSON with `usersCount`, `sessionsCount`, and `geminiKeyConfigured` (useful to verify backend status and Gemini key availability; use your deployed backend URL for production, e.g. `https://your-backend.onrender.com/api/status`)
 - http://localhost:3001/api/tools/generateImage/ping – quick image-tool health check (`{ "ok": true }`)
 
 ### Manual image generation curl test

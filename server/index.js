@@ -41,34 +41,16 @@ app.get('/', (req, res) => {
           <h1>Chat API Server</h1>
           <p>Backend is running. Use the React app at <a href="http://localhost:3000" style="color:#ffd700">localhost:3000</a></p>
           <p><a href="/api/status" style="color:#ffd700">Check DB status</a></p>
-          <p><a href="/api/youtube/channel?url=https://www.youtube.com/@veritasium&maxVideos=1" style="color:#ffd700">Test YouTube channel</a></p>
+          <p><a href="/api/youtube/download-channel" style="color:#ffd700">Use POST /api/youtube/download-channel</a></p>
         </div>
       </body>
     </html>
   `);
 });
 
-// YouTube channel (uses shared fetch logic; all video URLs are real)
-const YOUTUBE_API_KEY = stripEnvQuotes(process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY || '') || null;
 const GEMINI_API_KEY = stripEnvQuotes(process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '') || null;
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
-const { fetchYouTubeChannelData } = require('./youtubeChannel');
 const { scrapeYouTubeChannelData } = require('./youtubeScrape');
-
-app.get('/api/youtube/channel', async (req, res) => {
-  try {
-    const channelUrl = req.query.url || req.query.channelUrl;
-    const maxVideos = Math.min(100, Math.max(1, parseInt(req.query.maxVideos || '10', 10)));
-    if (!channelUrl) return res.status(400).json({ error: 'url or channelUrl required' });
-    if (!YOUTUBE_API_KEY) return res.status(503).json({ error: 'YouTube API key not configured (YOUTUBE_API_KEY)' });
-    const data = await fetchYouTubeChannelData(channelUrl, maxVideos, YOUTUBE_API_KEY);
-    res.json(data);
-  } catch (err) {
-    console.error('YouTube channel error:', err);
-    const status = err.message?.includes('not found') ? 404 : err.message?.includes('Invalid') ? 400 : 500;
-    res.status(status).json({ error: err.message || 'Failed to fetch channel' });
-  }
-});
 
 // Assignment-compatible download route (YouTube Data API only; no yt-dlp)
 app.post('/api/youtube/download-channel', async (req, res) => {
@@ -196,7 +178,6 @@ app.get('/api/status', async (req, res) => {
       usersCount,
       sessionsCount,
       geminiKeyConfigured: !!GEMINI_API_KEY,
-      youtubeApiKeyConfigured: !!YOUTUBE_API_KEY,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

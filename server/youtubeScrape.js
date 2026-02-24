@@ -65,27 +65,22 @@ function parseCountText(s) {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseCommentCountFromText(s) {
-  if (s === null || s === undefined) return null;
-  const text = String(s);
-  const a = text.match(/([\d,.kmbKMB]+)\s+comments?/i);
-  if (a) return parseCountText(a[1]);
-  const b = text.match(/comments?\s*[:\-]?\s*([\d,.kmbKMB]+)/i);
-  if (b) return parseCountText(b[1]);
-  return null;
+function parseCommentsNumber(s) {
+  if (!s) return null;
+  const m = String(s).match(/([\d,]+)\s+comments/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function normalizeIsoDate(input) {
   if (!input || typeof input !== 'string') return null;
   const raw = input.trim();
   if (!raw) return null;
-  // Explicit YYYY-MM-DD handling for stable ISO output
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const d = new Date(`${raw}T00:00:00.000Z`);
-    return Number.isNaN(d.getTime()) ? null : d.toISOString();
-  }
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00.000Z`) : new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const midnight = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  return midnight.toISOString();
 }
 
 function getText(node) {
@@ -107,6 +102,207 @@ function collectStrings(node, out) {
   }
   if (typeof node !== 'object') return;
   for (const v of Object.values(node)) collectStrings(v, out);
+}
+
+function collectAllStrings(obj) {
+  const out = [];
+  const stack = [obj];
+  while (stack.length) {
+    const x = stack.pop();
+    if (!x) continue;
+    if (typeof x === 'string') out.push(x);
+    else if (Array.isArray(x)) {
+      for (const v of x) stack.push(v);
+    } else if (typeof x === 'object') {
+      for (const k of Object.keys(x)) stack.push(x[k]);
+    }
+  }
+  return out;
+}
+
+function findAllObjectsWithKey(obj, key) {
+  const out = [];
+  const stack = [obj];
+  while (stack.length) {
+    const x = stack.pop();
+    if (!x) continue;
+    if (Array.isArray(x)) {
+      for (const v of x) stack.push(v);
+      continue;
+    }
+    if (typeof x !== 'object') continue;
+    if (x[key]) out.push(x[key]);
+    for (const k of Object.keys(x)) stack.push(x[k]);
+  }
+  return out;
+}
+
+function stringifyAllText(obj) {
+  return collectAllStrings(obj);
+}
+
+function extractCommentCount(ytInitialData) {
+  if (!ytInitialData || typeof ytInitialData !== 'object') {
+    return { count: null, source: null };
+  }
+
+  function fromTokenNeighbors(strings) {
+    const tokens = strings.map((s) => String(s).trim()).filter(Boolean);
+    for (let i = 0; i < tokens.length; i++) {
+      const num = Number(tokens[i].replace(/,/g, ''));
+      if (!Number.isFinite(num) || num <= 0) continue;
+      const prev = (tokens[i - 1] || '').toLowerCase();
+      const next = (tokens[i + 1] || '').toLowerCase();
+      if (prev.includes('comment') || next.includes('comment')) return num;
+    }
+    return null;
+  }
+
+  // Strategy A: engagement panels
+  const panels = findAllObjectsWithKey(ytInitialData, 'engagementPanelSectionListRenderer');
+  for (const p of panels) {
+    const txtParts = stringifyAllText(p);
+    const txt = txtParts.join(' ');
+    const n = parseCommentsNumber(txt);
+    if (n !== null) return { count: n, source: 'engagementPanels' };
+    const neighbor = fromTokenNeighbors(txtParts);
+    if (neighbor !== null) return { count: neighbor, source: 'engagementPanels' };
+  }
+
+  // Strategy B: itemSectionRenderer areas
+  const candidates = findAllObjectsWithKey(ytInitialData, 'itemSectionRenderer');
+  for (const c of candidates) {
+    const txtParts = stringifyAllText(c);
+    const txt = txtParts.join(' ');
+    const n = parseCommentsNumber(txt);
+    if (n !== null) return { count: n, source: 'itemSectionRenderer' };
+    const neighbor = fromTokenNeighbors(txtParts);
+    if (neighbor !== null) return { count: neighbor, source: 'itemSectionRenderer' };
+  }
+
+  // Strategy C: recursive fallback strings
+  const allStrings = collectAllStrings(ytInitialData);
+  for (const s of allStrings) {
+    const n = parseCommentsNumber(s);
+    if (n !== null) return { count: n, source: 'recursive' };
+  }
+  const recursiveNeighbor = fromTokenNeighbors(allStrings);
+  if (recursiveNeighbor !== null) return { count: recursiveNeighbor, source: 'recursive' };
+
+  return { count: null, source: null };
+}
+
+function extractInnertubeConfig(html) {
+  const keyMatch = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+  const clientVersionMatch = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/);
+  return {
+    apiKey: keyMatch?.[1] || null,
+    clientVersion: clientVersionMatch?.[1] || null,
+  };
+}
+
+function decodeHtmlEntities(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function extractTranscriptFromXml(xml) {
+  if (!xml || typeof xml !== 'string') return null;
+  const chunks = [];
+  const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const decoded = decodeHtmlEntities(m[1]).replace(/<[^>]+>/g, '').trim();
+    if (decoded) chunks.push(decoded);
+  }
+  if (!chunks.length) return null;
+  return chunks.join(' ').trim();
+}
+
+async function fetchTranscriptFromTracks(captionTracks) {
+  if (!Array.isArray(captionTracks) || !captionTracks.length) return null;
+  const preferred =
+    captionTracks.find((t) => String(t.languageCode || '').toLowerCase().startsWith('en')) ||
+    captionTracks[0];
+  const baseUrl = preferred?.baseUrl;
+  if (!baseUrl) return null;
+  try {
+    const res = await axios.get(baseUrl, { timeout: 15000 });
+    const transcript = extractTranscriptFromXml(res.data);
+    return transcript && transcript.length ? transcript : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCommentCountViaInnertube(html, videoId) {
+  const cfg = extractInnertubeConfig(html);
+  if (!cfg.apiKey || !cfg.clientVersion) return { count: null, source: null };
+  try {
+    const url = `https://www.youtube.com/youtubei/v1/next?key=${cfg.apiKey}`;
+    const body = {
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: cfg.clientVersion,
+          hl: 'en',
+          gl: 'US',
+        },
+      },
+      videoId,
+    };
+    const res = await axios.post(url, body, {
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+    const found = extractCommentCount(res.data);
+    if (found.count !== null) return { count: found.count, source: 'youtubei' };
+    const all = collectAllStrings(res.data);
+    for (const s of all) {
+      const n = parseCommentsNumber(s);
+      if (n !== null) return { count: n, source: 'youtubei' };
+    }
+    return { count: null, source: null };
+  } catch {
+    return { count: null, source: null };
+  }
+}
+
+async function fetchPlayerDataViaInnertube(html, videoId) {
+  const cfg = extractInnertubeConfig(html);
+  if (!cfg.apiKey || !cfg.clientVersion) return null;
+  try {
+    const url = `https://www.youtube.com/youtubei/v1/player?key=${cfg.apiKey}`;
+    const body = {
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: cfg.clientVersion,
+          hl: 'en',
+          gl: 'US',
+        },
+      },
+      videoId,
+    };
+    const res = await axios.post(url, body, {
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+    return res.data || null;
+  } catch {
+    return null;
+  }
 }
 
 function collectByKeyPattern(node, keyPattern, out) {
@@ -151,6 +347,28 @@ function pickVideosTab(ytInitialData) {
   );
 }
 
+function parseDurationTextSeconds(text) {
+  if (!text || typeof text !== 'string') return null;
+  const parts = text
+    .trim()
+    .split(':')
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x));
+  if (!parts.length) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+function extractChannelMeta(ytInitialData, handle) {
+  const title =
+    ytInitialData?.header?.c4TabbedHeaderRenderer?.title ||
+    ytInitialData?.metadata?.channelMetadataRenderer?.title ||
+    handle;
+  const channelId = ytInitialData?.metadata?.channelMetadataRenderer?.externalId || handle;
+  return { channelTitle: title || handle, channelId: channelId || handle };
+}
+
 async function fetchHtml(url) {
   const res = await axios.get(url, {
     timeout: 20000,
@@ -178,33 +396,37 @@ async function fetchVideoDetails(videoId) {
     'window["ytInitialData"] = ',
     'ytInitialData = ',
   ]);
-  if (!initialDataString) throw new Error(`ytInitialData not found for ${videoId}`);
+  if (!initialDataString) {
+    console.warn('ytInitialData missing for video', videoId);
+  }
 
   let playerData;
-  let initialData;
+  let initialData = null;
   try {
     playerData = JSON.parse(playerJsonString);
-    initialData = JSON.parse(initialDataString);
+    if (initialDataString) initialData = JSON.parse(initialDataString);
   } catch {
     throw new Error(`Failed to parse watch JSON blobs for ${videoId}`);
   }
 
   const details = playerData?.videoDetails || {};
   const micro = playerData?.microformat?.playerMicroformatRenderer || {};
-  const durationSeconds = parseInt(details.lengthSeconds || '0', 10);
+  const durationSeconds = Number(details.lengthSeconds);
   const publishRaw = micro.publishDate || micro.uploadDate || null;
+  let captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  let transcript = await fetchTranscriptFromTracks(captionTracks);
 
   // view count: prefer player response, fallback watch-page initial data strings
-  let view_count = parseCountText(details.viewCount);
-  if (!Number.isFinite(view_count)) {
+  let viewCount = parseCountText(details.viewCount);
+  if (!Number.isFinite(viewCount) && initialData) {
     const allStrings = [];
     collectStrings(initialData, allStrings);
     const viewLabel = allStrings.find((s) => /views?/i.test(String(s)) && /[\d,.]/.test(String(s)));
-    view_count = parseCountText(viewLabel);
+    viewCount = parseCountText(viewLabel);
   }
 
   // like count: gather many candidates and choose largest sensible value
-  let like_count = null;
+  let likeCount = null;
   const topButtons =
     initialData?.contents?.twoColumnWatchNextResults?.results?.results?.contents
       ?.find((c) => c?.videoPrimaryInfoRenderer)
@@ -213,9 +435,9 @@ async function fetchVideoDetails(videoId) {
   const likeStrings = [];
   collectStrings(topButtons, likeStrings);
   const globalStrings = [];
-  collectStrings(initialData, globalStrings);
+  if (initialData) collectStrings(initialData, globalStrings);
   const likeKeyCandidates = [];
-  collectByKeyPattern(initialData, /like/i, likeKeyCandidates);
+  if (initialData) collectByKeyPattern(initialData, /like/i, likeKeyCandidates);
   const likeCandidates = [
     ...likeStrings.filter((s) => /\blikes?\b/i.test(String(s))),
     ...globalStrings.filter((s) => /\blikes?\b/i.test(String(s))),
@@ -224,43 +446,46 @@ async function fetchVideoDetails(videoId) {
   const likeValues = likeCandidates
     .map((s) => parseCountText(s))
     .filter((n) => Number.isFinite(n) && n >= 0);
-  like_count = likeValues.length ? Math.max(...likeValues) : null;
-  if (!Number.isFinite(like_count)) like_count = 0;
+  likeCount = likeValues.length ? Math.max(...likeValues) : null;
 
-  // comment count: recursive key/value scans + string pattern fallback
-  let comment_count = null;
-  const commentStrings = [];
-  collectStrings(initialData, commentStrings);
-  const commentKeyCandidates = [];
-  collectByKeyPattern(initialData, /comment/i, commentKeyCandidates);
-  const commentFromStrings = commentStrings
-    .map((s) => parseCommentCountFromText(s))
-    .filter((n) => Number.isFinite(n) && n >= 0);
-  const commentFromKeys = commentKeyCandidates
-    .map((v) => parseCountText(v))
-    .filter((n) => Number.isFinite(n) && n >= 0);
-  const mergedCommentCandidates = [...commentFromStrings, ...commentFromKeys];
-  comment_count = mergedCommentCandidates.length ? Math.max(...mergedCommentCandidates) : null;
-  if (!Number.isFinite(comment_count)) {
-    const htmlCommentMatch =
-      html.match(/"commentCount"\s*:\s*"([^"]+)"/i) ||
-      html.match(/"commentsCount"\s*:\s*"([^"]+)"/i);
-    comment_count = parseCountText(htmlCommentMatch?.[1]);
+  let comment = initialData ? extractCommentCount(initialData) : { count: null, source: null };
+  if (comment.count === null) {
+    const htmlCommentFallback =
+      parseCommentsNumber(html) ||
+      parseCommentsNumber((html.match(/"commentsEntryPointHeaderRenderer"[\s\S]{0,1000}/) || [null])[0]);
+    if (htmlCommentFallback !== null) {
+      comment = { count: htmlCommentFallback, source: 'html' };
+    }
   }
-  if (!Number.isFinite(comment_count)) {
-    // Keep non-null output for downstream tools/grading, while still signaling extraction fallback.
-    comment_count = 0;
+  if (comment.count === null) {
+    const viaNext = await fetchCommentCountViaInnertube(html, videoId);
+    if (viaNext.count !== null) comment = viaNext;
+  }
+
+  let description = details.shortDescription || getText(micro.description) || '';
+  if (!description || !description.trim() || !transcript) {
+    const playerViaInnertube = await fetchPlayerDataViaInnertube(html, videoId);
+    const innerDetails = playerViaInnertube?.videoDetails || {};
+    if ((!description || !description.trim()) && innerDetails.shortDescription) {
+      description = innerDetails.shortDescription;
+    }
+    if (!transcript) {
+      captionTracks = playerViaInnertube?.captions?.playerCaptionsTracklistRenderer?.captionTracks || captionTracks;
+      transcript = await fetchTranscriptFromTracks(captionTracks);
+    }
   }
 
   const releaseIso = normalizeIsoDate(publishRaw);
 
   return {
-    description: details.shortDescription || '',
+    description: description || '',
+    transcript,
     duration: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
-    view_count: Number.isFinite(view_count) ? view_count : null,
-    like_count: Number.isFinite(like_count) ? like_count : null,
-    comment_count,
-    release_date: releaseIso,
+    viewCount: Number.isFinite(viewCount) ? viewCount : null,
+    likeCount: Number.isFinite(likeCount) ? likeCount : null,
+    commentCount: Number.isFinite(comment.count) ? comment.count : null,
+    commentCountSource: comment.source,
+    releaseDate: releaseIso,
   };
 }
 
@@ -309,83 +534,73 @@ async function scrapeYouTubeChannelData(channelUrl, rawMaxVideos = 10) {
 
   const videosTab = pickVideosTab(ytInitialData);
   if (!videosTab) throw new Error('Videos tab not found in ytInitialData');
+  const channelMeta = extractChannelMeta(ytInitialData, handle);
 
   const renderers = [];
   collectVideoRenderers(videosTab, renderers);
   if (!renderers.length) throw new Error('No videos found');
 
   const top = renderers.slice(0, maxVideos).map((vr) => {
-    const thumbs = vr.thumbnail?.thumbnails || [];
-    const bestThumb = thumbs[thumbs.length - 1]?.url || thumbs[0]?.url || null;
     return {
-      video_id: vr.videoId || '',
+      videoId: vr.videoId || '',
       title: getText(vr.title) || '',
-      // Never store relative text (e.g. "3 years ago") in release_date.
-      release_date: null,
-      relative_published: getText(vr.publishedTimeText) || null,
-      duration: getText(vr.lengthText) || null,
-      view_count: parseCountText(getText(vr.viewCountText)),
-      thumbnail_url: bestThumb,
+      relativePublished: getText(vr.publishedTimeText) || null,
+      durationText: getText(vr.lengthText) || null,
+      viewCount: parseCountText(getText(vr.viewCountText)),
     };
-  }).filter((v) => v.video_id);
+  }).filter((v) => v.videoId);
 
   const videos = [];
   for (const v of top) {
     try {
-      const detail = await fetchVideoDetails(v.video_id);
-      const induced = !detail.release_date ? backwardInductionDate(v.relative_published) : null;
-      const inducedIso = induced ? induced.toISOString() : null;
-      const finalIso = detail.release_date || inducedIso;
+      const detail = await fetchVideoDetails(v.videoId);
+      const induced = !detail.releaseDate ? backwardInductionDate(v.relativePublished) : null;
+      const inducedIso = induced ? normalizeIsoDate(induced.toISOString()) : null;
+      const finalIso = detail.releaseDate || inducedIso;
+      const finalDurationSeconds =
+        detail.duration ??
+        parseDurationTextSeconds(v.durationText);
       videos.push({
-        video_id: v.video_id,
+        videoId: v.videoId,
         title: v.title,
         description: detail.description || '',
-        duration: detail.duration ?? v.duration,
-        release_date: finalIso ? finalIso.slice(0, 10) : null,
-        release_date_iso: finalIso,
-        release_date_ms: finalIso ? new Date(finalIso).getTime() : null,
-        release_date_raw: v.relative_published || detail.release_date || null,
-        normalized_at: new Date().toISOString(),
-        relative_published: v.relative_published || null,
-        view_count: detail.view_count ?? v.view_count,
-        like_count: detail.like_count,
-        comment_count: Number.isFinite(detail.comment_count) ? detail.comment_count : 0,
-        video_url: `https://www.youtube.com/watch?v=${v.video_id}`,
-        thumbnail_url: v.thumbnail_url,
-        transcript: null,
-        transcript_available: false,
+        transcript: detail.transcript || null,
+        duration: Number.isFinite(finalDurationSeconds) ? finalDurationSeconds : 0,
+        releaseDate: finalIso,
+        viewCount: detail.viewCount ?? v.viewCount ?? 0,
+        likeCount: detail.likeCount,
+        commentCount: detail.commentCount,
+        videoUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
+        thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
       });
-    } catch {
-      const induced = backwardInductionDate(v.relative_published);
-      const inducedIso = induced ? induced.toISOString() : null;
+      if (detail.commentCount === null) {
+        console.warn(`Comment count unavailable for video ${v.videoId}; source=${detail.commentCountSource || 'none'}`);
+      }
+    } catch (e) {
+      console.warn(`watch fetch failed for video ${v.videoId}: ${e?.message || e}`);
+      const induced = backwardInductionDate(v.relativePublished);
+      const inducedIso = induced ? normalizeIsoDate(induced.toISOString()) : null;
+      const fallbackDurationSeconds = parseDurationTextSeconds(v.durationText);
       videos.push({
-        video_id: v.video_id,
+        videoId: v.videoId,
         title: v.title,
         description: '',
-        duration: v.duration,
-        release_date: inducedIso ? inducedIso.slice(0, 10) : null,
-        release_date_iso: inducedIso,
-        release_date_ms: inducedIso ? new Date(inducedIso).getTime() : null,
-        release_date_raw: v.relative_published || null,
-        normalized_at: new Date().toISOString(),
-        relative_published: v.relative_published || null,
-        view_count: v.view_count,
-        like_count: 0,
-        comment_count: 0,
-        video_url: `https://www.youtube.com/watch?v=${v.video_id}`,
-        thumbnail_url: v.thumbnail_url,
         transcript: null,
-        transcript_available: false,
+        duration: Number.isFinite(fallbackDurationSeconds) ? fallbackDurationSeconds : 0,
+        releaseDate: inducedIso,
+        viewCount: v.viewCount ?? 0,
+        likeCount: null,
+        commentCount: null,
+        videoUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
+        thumbnail: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
       });
     }
   }
 
   if (!videos.length) throw new Error('No videos found');
   return {
-    channel: {
-      handle,
-      url: channelUrl,
-    },
+    channelId: channelMeta.channelId,
+    channelTitle: channelMeta.channelTitle,
     videos,
   };
 }

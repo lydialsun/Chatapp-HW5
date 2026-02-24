@@ -29,7 +29,7 @@ Run the app locally, then verify each feature.
 
 - [ ] Click the **YouTube Channel Download** tab.
 - [ ] Page shows: Channel URL (default `https://www.youtube.com/@veritasium`), Max videos (default 10), **Download Channel Data** button.
-- [ ] **With API key**: If `YOUTUBE_API_KEY` is set in `.env`, click **Download Channel Data**. A progress bar appears, then "Download JSON file". Click it and confirm a JSON file downloads with `channelTitle`, `videos` (each with title, viewCount, likeCount, etc.).
+- [ ] **No API key required**: Click **Download Channel Data**. A progress bar appears, then "Download JSON file". Click it and confirm a JSON file downloads with canonical fields: `channelId`, `channelTitle`, and `videos` entries including `videoId`, `title`, `description`, `transcript`, `duration` (seconds), `releaseDate`, `viewCount`, `likeCount`, `commentCount`, `videoUrl`, `thumbnail`.
 - [ ] **Without API key**: If you don’t set the key, the button will show an error (e.g. "YouTube API key not configured"). That’s expected.
 
 ---
