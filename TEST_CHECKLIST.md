@@ -72,6 +72,13 @@ Run the app locally, then verify each feature.
 - [ ] **Optional** (needs backend image generation): Drag an **image** into the chat and type e.g. **"Generate an image in this style but with a sunset"**. If the backend supports it, a generated image appears with **Download** and **Enlarge**.
 - [ ] If you see "Image generation not available" or an API error, ensure the server has `REACT_APP_GEMINI_API_KEY` and that the model supports image generation; otherwise you can skip this for a quick test.
 
+### Safety regression checks
+
+- [ ] Text-only image request: `generate an image of a panda icon` calls `/api/tools/generateImage` and returns image or visible error within timeout.
+- [ ] Anchor-image request: attach an image + `make it in watercolor` still calls `/api/tools/generateImage` directly and does not call YouTube tool chat.
+- [ ] Non-image tool request still works through structured tool dispatcher (e.g. plot/stats/play video).
+- [ ] If model text contains fake code like `generateImage(...)`, app displays text only and never executes it.
+
 ---
 
 ## 8. General

@@ -28,16 +28,12 @@ export default function Auth({ onLogin }) {
         setLastName('');
       } else {
         const user = await findUser(name, password);
-        if (!user) throw new Error('User not found or invalid password');
+        if (!user) throw new Error('Login failed');
         onLogin(user);
       }
     } catch (err) {
-      try {
-        const j = JSON.parse(err.message);
-        setError(j.error || err.message);
-      } catch {
-        setError(err.message || 'Something went wrong');
-      }
+      const message = err?.message || 'Something went wrong';
+      setError(message);
     } finally {
       setLoading(false);
     }

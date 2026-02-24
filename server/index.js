@@ -124,7 +124,21 @@ app.post('/api/users/login', async (req, res) => {
     const name = username.trim().toLowerCase();
     const user = await db.collection('users').findOne({ username: name });
     if (!user) return res.status(401).json({ error: 'User not found' });
-    const ok = await bcrypt.compare(password, user.password);
+    const storedPassword = typeof user.password === 'string' ? user.password : '';
+    let ok = false;
+    if (storedPassword.startsWith('$2')) {
+      ok = await bcrypt.compare(password, storedPassword);
+    } else if (storedPassword === password) {
+      // Backward compatibility for legacy/plaintext rows: allow login once, then migrate.
+      ok = true;
+      const hashed = await bcrypt.hash(password, 10);
+      await db.collection('users').updateOne(
+        { _id: user._id },
+        { $set: { password: hashed } }
+      );
+    } else {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
     if (!ok) return res.status(401).json({ error: 'Invalid password' });
     res.json({
       ok: true,
@@ -263,6 +277,7 @@ app.get('/api/messages', async (req, res) => {
 });
 
 async function handleGenerateImage(req, res) {
+  const requestId = `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     const startedAt = Date.now();
     const startedIso = new Date(startedAt).toISOString();
@@ -283,7 +298,10 @@ async function handleGenerateImage(req, res) {
       });
     }
 
-    const MODELS = ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview'];
+    const hasAnchor = Boolean(anchorImageBase64);
+    const MODELS = hasAnchor
+      ? ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview']
+      : ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview'];
     const backendTimeoutMs = Math.max(10000, parseInt(process.env.IMAGE_TIMEOUT_MS || '65000', 10));
 
     const runModelOnce = async (modelName) => Promise.race([
@@ -302,7 +320,7 @@ async function handleGenerateImage(req, res) {
     let response = null;
     let modelUsed = null;
     let lastErr = null;
-    console.log(`[generateImage] start ${startedIso} models=${MODELS.join(',')}`);
+    console.log(`[generateImage] requestId=${requestId} start=${startedIso} hasAnchor=${hasAnchor} models=${MODELS.join(',')}`);
     for (const modelName of MODELS) {
       try {
         response = await runModelOnce(modelName);
@@ -310,38 +328,47 @@ async function handleGenerateImage(req, res) {
         break;
       } catch (e) {
         lastErr = e;
-        console.warn(`[generateImage] model failed model=${modelName} err=${e?.message || e}`);
+        console.warn(`[generateImage] requestId=${requestId} model failed model=${modelName} err=${e?.message || e}`);
       }
     }
     if (!response || !modelUsed) {
       throw lastErr || new Error('Image generation failed');
     }
-    console.log(`[generateImage] gemini response received in ${Date.now() - startedAt}ms model=${modelUsed}`);
+    console.log(`[generateImage] requestId=${requestId} response_ms=${Date.now() - startedAt} model=${modelUsed}`);
 
-    const responseParts = response?.candidates?.[0]?.content?.parts ?? [];
+    const candidate = response?.candidates?.[0];
+    const responseParts = candidate?.content?.parts ?? [];
     const imgPart = responseParts.find((p) => p?.inline_data?.data || p?.inlineData?.data);
     const bytes = imgPart?.inline_data?.data || imgPart?.inlineData?.data;
 
     if (!bytes) {
+      const partsSummary = responseParts.map((p) => ({
+        hasText: typeof p?.text === 'string' && p.text.length > 0,
+        hasInlineData: Boolean(p?.inline_data || p?.inlineData),
+        mimeType: p?.inline_data?.mime_type || p?.inlineData?.mimeType || null,
+      }));
       return res.status(400).json({
         error: 'No image returned from Gemini',
-        debugParts: responseParts,
+        requestId,
+        modelUsed,
+        finishReason: candidate?.finishReason || null,
+        partsSummary,
       });
     }
 
     let imageBase64;
     if (typeof bytes === 'string') imageBase64 = bytes;
     else imageBase64 = Buffer.from(bytes).toString('base64');
-    console.log(`[generateImage] success in ${Date.now() - startedAt}ms`);
+    console.log(`[generateImage] requestId=${requestId} success_ms=${Date.now() - startedAt}`);
     return res.json({ imageBase64, mimeType: 'image/png', modelUsed });
   } catch (err) {
-    console.error('[generateImage] error:', err);
+    console.error(`[generateImage] requestId=${requestId} error:`, err);
     const msg = err?.message || 'Image generation failed';
     const status =
       msg.includes('timeout')
         ? 504
         : (msg.includes('not found') || msg.includes('No image in response') ? 400 : 500);
-    return res.status(status).json({ error: msg });
+    return res.status(status).json({ error: msg, requestId });
   }
 }
 

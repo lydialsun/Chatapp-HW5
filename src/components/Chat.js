@@ -171,7 +171,7 @@ export default function Chat({ user, onLogout }) {
   // so the messages useEffect knows to skip the reload (streaming is in progress).
   const justCreatedSessionRef = useRef(false);
 
-  const withTimeout = (p, ms = 60000) =>
+  const withTimeout = (p, ms = 90000) =>
     Promise.race([
       p,
       new Promise((_, reject) =>
@@ -448,19 +448,15 @@ export default function Chat({ user, onLogout }) {
     }
 
     const videos = channelJsonData?.videos ?? [];
+    const hasAnchor = images.length > 0;
     const wantsImageGeneration =
       /\b(generate|create|draw|make|paint)\s+(an?\s+)?(image|picture|photo)\b/i.test(text) ||
       /\bgenerateImage\b/i.test(text) ||
       /\bimage\s+generation\b/i.test(text) ||
       (images.length > 0 && /\b(generate|create|draw|style|transform|based on this)\b/i.test(text));
-    const directImageIntent =
-      /\bgenerate an image\b/i.test(text) ||
-      /\bdraw\b/i.test(text) ||
-      /\bcreate an image\b/i.test(text) ||
-      /\bmake an image\b/i.test(text) ||
-      /\bimage of\b/i.test(text);
+    const directImageIntent = /\bgenerate an image|draw|create an image|make an image\b/i.test(text);
     const useYouTubeTools = videos.length > 0;
-    const useImageTools = wantsImageGeneration || directImageIntent;
+    const useImageTools = wantsImageGeneration || hasAnchor || directImageIntent;
 
     const capturedCsv = csvContext;
     const needsBase64 = false;
@@ -561,6 +557,7 @@ ${sessionSummary}${slimCsvBlock}
       let toolCharts = [];
       let toolCalls = [];
 
+      // HARD ROUTE: image requests never enter Gemini tool-calling/chat pipelines.
       if (useImageTools) {
         const anchorImage = capturedImages[0];
         const result = await withTimeout(
@@ -569,7 +566,7 @@ ${sessionSummary}${slimCsvBlock}
             anchorImageBase64: anchorImage?.data || null,
             anchorMimeType: anchorImage?.mimeType || 'image/png',
           }),
-          60000
+          90000
         );
         fullContent = 'Here you go.';
         toolCharts = [{

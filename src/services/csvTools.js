@@ -257,6 +257,16 @@ export const computeDatasetSummary = (rows, headers) => {
 // ── Client-side tool executor ─────────────────────────────────────────────────
 
 export const executeTool = (toolName, args, rows) => {
+  const ALLOWED_CSV_TOOLS = new Set([
+    'compute_column_stats',
+    'get_value_counts',
+    'get_top_tweets',
+  ]);
+  if (!ALLOWED_CSV_TOOLS.has(toolName)) {
+    console.warn(`[CSV Tool] Unknown tool blocked: ${toolName}`);
+    return { error: `Unknown tool: ${toolName}` };
+  }
+
   const availableHeaders = rows.length ? Object.keys(rows[0]) : [];
   console.group(`[CSV Tool] ${toolName}`);
   console.log('args:', args);

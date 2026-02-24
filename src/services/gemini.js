@@ -36,6 +36,15 @@ function trimText(s) {
     : s.slice(0, MAX_MESSAGE_CHARS) + '\n\n[... truncated for length ...]';
 }
 
+function sanitizeModelText(text) {
+  const t = (text || '').toString();
+  // Never treat these as executable commands; keep output plain and safe.
+  if (/generateImage\s*\(|gemini_tools|name\s+'.*'\s+is\s+not\s+defined/i.test(t)) {
+    return 'I cannot execute text-based tool code. Please send a normal request and I will use the proper tool path.';
+  }
+  return t;
+}
+
 const SEARCH_TOOL = { googleSearch: {} };
 
 let cachedPrompt = null;
@@ -192,7 +201,7 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
     ).response;
   }
 
-  return { text: response.text(), charts, toolCalls };
+  return { text: sanitizeModelText(response.text()), charts, toolCalls };
 };
 
 // ── Function-calling chat for YouTube / channel JSON tools ───────────────────
@@ -245,9 +254,5 @@ export const chatWithYouTubeTools = async (history, newMessage, executeFn) => {
     ).response;
   }
 
-  let text = response.text();
-  if (!toolCalls.length && /generateImage\s*\(/i.test(text || '')) {
-    text = 'Generating image…';
-  }
-  return { text, charts, toolCalls };
+  return { text: sanitizeModelText(response.text()), charts, toolCalls };
 };

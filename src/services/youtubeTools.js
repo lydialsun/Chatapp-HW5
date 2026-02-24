@@ -2,6 +2,12 @@
  * Chat tools for YouTube channel JSON data.
  * Required names: generateImage, plot_metric_vs_time, play_video, compute_stats_json
  */
+const ALLOWED_YOUTUBE_TOOLS = new Set([
+  'generateImage',
+  'plot_metric_vs_time',
+  'play_video',
+  'compute_stats_json',
+]);
 
 // Fallback real Veritasium video IDs when loaded data has placeholder IDs (sample1, -example, etc.)
 const REAL_VERITASIUM_IDS = [
@@ -200,10 +206,16 @@ function median(sorted) {
  * generateImageFn(prompt, anchorBase64, mimeType) returns Promise<{ imageBase64, mimeType }>
  */
 export async function executeYouTubeTool(toolName, args, context) {
+  if (!ALLOWED_YOUTUBE_TOOLS.has(toolName)) {
+    console.warn(`[YouTube Tool] Unknown tool blocked: ${toolName}`);
+    return { error: `Unknown tool: ${toolName}` };
+  }
+
   const { videos = [], generateImageFn } = context;
 
   switch (toolName) {
     case 'generateImage': {
+      console.warn('[YouTube Tool] generateImage is blocked in tool pipeline; UI direct route required.');
       if (!generateImageFn) return { error: 'Image generation not available' };
       const prompt = args.prompt || '';
       const useAnchor = args.useAnchorImage !== false && context.anchorImageBase64;

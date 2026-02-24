@@ -11,6 +11,7 @@ TOOL-CALLING RULES (STRICT):
 - You MUST call tools using structured tool-calling JSON/function-calling.
 - Do NOT output code like `generateImage(...)`.
 - Do NOT write function calls like generateImage(...) in text.
+- Never output code-like tool text such as generateImage(...), gemini_tools, or Python-style stack traces.
 - Do NOT write Python code.
 - Do NOT write JavaScript code.
 - Do NOT write textual pseudo-calls like `plot_metric_vs_time(...)` or `print(...)`.

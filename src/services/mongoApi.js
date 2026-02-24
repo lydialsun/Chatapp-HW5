@@ -1,4 +1,4 @@
-const API_BASE = (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/+$/, '');
 
 function buildApiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -117,7 +117,7 @@ export const generateImage = async (input, anchorImageBase64 = null, anchorMimeT
           anchorMimeType,
         };
   const controller = new AbortController();
-  const timeoutMs = 70000;
+  const timeoutMs = 90000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const url = `${API_BASE}/api/tools/generateImage`.replace(/(?<!:)\/\/+/g, '/');
@@ -134,6 +134,7 @@ export const generateImage = async (input, anchorImageBase64 = null, anchorMimeT
     } catch {
       throw new Error('Invalid JSON from server');
     }
+    console.log('[generateImage] status', res.status, 'keys', Object.keys(data || {}));
     if (!res.ok) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
