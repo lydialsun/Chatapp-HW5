@@ -125,9 +125,6 @@ function getRawDate(video) {
     video?.releaseDate ??
     video?.publishedAt ??
     video?.published_at ??
-    video?.publishDate ??
-    video?.uploadDate ??
-    video?.published_time_text ??
     null
   );
 }
@@ -174,8 +171,13 @@ function toNumber(x) {
   return null;
 }
 
+function camelToSnake(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+}
+
 function getMetricValue(video, metric) {
-  const snake = metric.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+  const snake = camelToSnake(metric);
   const candidates = [video?.[metric], video?.[snake]];
   for (const c of candidates) {
     const n = toNumber(c);
@@ -213,81 +215,76 @@ export async function executeYouTubeTool(toolName, args, context) {
     }
 
     case 'plot_metric_vs_time': {
-      const field = resolveNumericField(videos, args.metric || args.metricField || 'viewCount');
-      const now = new Date();
-      const points = [];
-      let skippedInvalidDate = 0;
-      let skippedInvalidMetric = 0;
-      let normalizedMsCount = 0;
-      let publishedPresent = 0;
-      let releaseDatePresent = 0;
-      const invalidDates = [];
+      try {
+        const requestedMetric = String(args.metric || args.metricField || 'viewCount');
+        const field = resolveNumericField(videos, requestedMetric);
+        const now = new Date();
+        const points = [];
+        let skippedInvalidDate = 0;
+        let skippedInvalidMetric = 0;
+        let normalizedMsCount = 0;
+        let publishedPresent = 0;
+        let releaseDatePresent = 0;
+        const invalidDates = [];
 
-      for (const v of videos) {
-        const publishedRaw = v?.publishedAt ?? v?.published_at ?? v?.publishDate ?? v?.uploadDate ?? null;
-        const releaseRaw = v?.release_date ?? v?.releaseDate ?? v?.published_time_text ?? null;
-        if (publishedRaw) publishedPresent++;
-        if (releaseRaw) releaseDatePresent++;
+        for (const v of videos) {
+          const publishedRaw = v?.publishedAt ?? v?.published_at ?? null;
+          const releaseRaw = v?.release_date ?? v?.releaseDate ?? null;
+          if (publishedRaw) publishedPresent++;
+          if (releaseRaw) releaseDatePresent++;
 
-        const rawDate = getRawDate(v);
-        let ms = Number.isFinite(v?.release_date_ms) ? v.release_date_ms : null;
-        if (!Number.isFinite(ms) && v?.release_date_iso) {
-          const p = Date.parse(v.release_date_iso);
-          ms = Number.isFinite(p) ? p : null;
-        }
-        if (!Number.isFinite(ms) && typeof publishedRaw === 'string') {
-          const p = Date.parse(publishedRaw);
-          ms = Number.isFinite(p) ? p : null;
-        }
-        if (!Number.isFinite(ms)) {
-          ms = normalizeDateToMs(rawDate, now);
-        }
-
-        if (!Number.isFinite(ms)) {
-          skippedInvalidDate++;
-          if (invalidDates.length < 3) {
-            invalidDates.push({
-              title: v?.title || 'Untitled',
-              rawDate,
-            });
+          const rawDate = getRawDate(v);
+          let ms = normalizeDateToMs(rawDate, now);
+          if (!Number.isFinite(ms) && Number.isFinite(v?.release_date_ms)) {
+            ms = v.release_date_ms;
           }
-          continue;
+          if (!Number.isFinite(ms) && v?.release_date_iso) {
+            const p = Date.parse(v.release_date_iso);
+            ms = Number.isFinite(p) ? p : null;
+          }
+
+          if (!Number.isFinite(ms)) {
+            skippedInvalidDate++;
+            if (invalidDates.length < 3) {
+              invalidDates.push({
+                title: v?.title || 'Untitled',
+                rawDate,
+              });
+            }
+            continue;
+          }
+
+          normalizedMsCount++;
+          const value = getMetricValue(v, field);
+          if (value === null) {
+            skippedInvalidMetric++;
+            continue;
+          }
+
+          points.push({
+            x: ms,
+            date: new Date(ms).toISOString().slice(0, 10),
+            value,
+            title: v?.title || 'Untitled',
+            video_url: v?.video_url || v?.videoUrl || '',
+          });
         }
 
-        normalizedMsCount++;
-        const value = getMetricValue(v, field);
-        if (value === null) {
-          skippedInvalidMetric++;
-          continue;
+        points.sort((a, b) => a.x - b.x);
+        if (skippedInvalidDate > 0) {
+          console.warn(`[plot_metric_vs_time] Skipped ${skippedInvalidDate} videos due to invalid date values.`);
         }
 
-        const d = new Date(ms);
-        if (Number.isNaN(d.getTime())) {
-          skippedInvalidDate++;
-          continue;
+        if (points.length < 2) {
+          return {
+            error: `Not enough valid dates to plot. total=${videos.length}, publishedAt_present=${publishedPresent}, release_date_present=${releaseDatePresent}, normalized_ms=${normalizedMsCount}, skipped_invalid_date=${skippedInvalidDate}, skipped_invalid_metric=${skippedInvalidMetric}, invalid_date_examples=${JSON.stringify(invalidDates)}, date_keys_tried=release_date,releaseDate,publishedAt,published_at`,
+          };
         }
 
-        points.push({
-          x: ms,
-          date: d.toISOString().slice(0, 10),
-          value,
-          title: v?.title || 'Untitled',
-          video_url: v?.video_url || v?.videoUrl || '',
-        });
+        return { _chartType: 'metricVsTime', data: points, metricField: field };
+      } catch (e) {
+        return { error: `Unable to plot metric over time: ${e?.message || 'Unknown error'}` };
       }
-
-      points.sort((a, b) => a.x - b.x);
-      if (skippedInvalidDate > 0) {
-        console.warn(`[plot_metric_vs_time] Skipped ${skippedInvalidDate} videos due to invalid date values.`);
-      }
-
-      if (points.length < 2) {
-        return {
-          error: `Not enough valid dates to plot. total=${videos.length}, publishedAt_present=${publishedPresent}, release_date_present=${releaseDatePresent}, normalized_ms=${normalizedMsCount}, skipped_invalid_date=${skippedInvalidDate}, skipped_invalid_metric=${skippedInvalidMetric}, invalid_date_examples=${JSON.stringify(invalidDates)}, date_keys_tried=release_date,releaseDate,publishedAt,published_at,publishDate,uploadDate,published_time_text`,
-        };
-      }
-
-      return { _chartType: 'metricVsTime', data: points, metricField: field };
     }
 
     case 'play_video': {
