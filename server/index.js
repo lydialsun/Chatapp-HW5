@@ -288,7 +288,7 @@ async function handleGenerateImage(req, res) {
     if (!ai) return res.status(503).json({ error: 'Gemini client unavailable', code: 'GEMINI_CLIENT_UNAVAILABLE' });
 
     const parts = [{ text: prompt.trim() }];
-    const useAnchorImage = anchorImageBase64 !== undefined && anchorImageBase64 !== null;
+    const useAnchorImage = typeof anchorImageBase64 === 'string' && anchorImageBase64.trim().length > 0;
     if (useAnchorImage) {
       if (typeof anchorImageBase64 !== 'string' || !anchorImageBase64.trim()) {
         return res.status(400).json({ error: 'Invalid anchorImageBase64', requestId, build: BUILD_VERSION });
@@ -312,7 +312,7 @@ async function handleGenerateImage(req, res) {
       });
     }
 
-    const hasAnchor = Boolean(anchorImageBase64);
+    const hasAnchor = useAnchorImage;
     const MODELS = hasAnchor
       ? ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview']
       : ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview'];

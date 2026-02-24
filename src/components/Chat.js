@@ -570,12 +570,17 @@ ${sessionSummary}${slimCsvBlock}
       // HARD ROUTE: image requests never enter Gemini tool-calling/chat pipelines.
       if (useImageTools) {
         const anchorImage = capturedImages[0];
+        const imageRequestPayload = anchorImage?.data
+          ? {
+              prompt: text || 'Generate an image.',
+              anchorImageBase64: anchorImage.data,
+              anchorMimeType: anchorImage?.mimeType || 'image/png',
+            }
+          : {
+              prompt: text || 'Generate an image.',
+            };
         const result = await withTimeout(
-          apiGenerateImage({
-            prompt: text || 'Generate an image.',
-            anchorImageBase64: anchorImage?.data || null,
-            anchorMimeType: anchorImage?.mimeType || 'image/png',
-          }),
+          apiGenerateImage(imageRequestPayload),
           90000
         );
         fullContent = 'Here you go.';
