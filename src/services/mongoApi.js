@@ -94,7 +94,7 @@ export const loadMessages = async (sessionId) => {
 // ── YouTube ─────────────────────────────────────────────────────────────────
 
 /** Fetch channel video metadata via backend scraper (no API key). */
-export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) => {
+export const fetchYouTubeChannelData = async (channelUrl, maxVideos = 10) => {
   return api('/api/youtube/download-channel', {
     method: 'POST',
     body: JSON.stringify({ channelUrl, maxVideos }),

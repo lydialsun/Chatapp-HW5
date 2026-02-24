@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
-import { fetchYouTubeChannelViaGemini } from '../services/mongoApi';
+import { fetchYouTubeChannelData } from '../services/mongoApi';
 import { normalizeVideosReleaseDates } from '../services/dateNormalization';
 import './YouTubeChannelDownload.css';
 
-const SAMPLE_JSON_URL = '/veritasium_10.json';
+const SAMPLE_JSON_URL = '/veritasium_channel_data.json';
 
 function progressInterval(setProgress, done) {
   const steps = [15, 30, 45, 60, 75, 90];
@@ -36,7 +36,7 @@ export default function YouTubeChannelDownload() {
 
     try {
       const max = Math.min(100, Math.max(1, maxVideos));
-      const data = await fetchYouTubeChannelViaGemini(channelUrl, max);
+      const data = await fetchYouTubeChannelData(channelUrl, max);
       const base = data?.channel
         ? { channelTitle: data.channel.channelTitle || '', videos: data.videos || [] }
         : data;
@@ -93,7 +93,7 @@ export default function YouTubeChannelDownload() {
       <div className="youtube-download-card">
         <h2>YouTube Channel Download</h2>
         <p className="youtube-download-desc">
-          Enter a YouTube channel URL to download video metadata using YouTube Data API v3.
+          Enter a YouTube channel URL to download video metadata using pure Node.js scraping.
           Metadata includes: title, description, transcript (if available), duration, release date, view count, like count, comment count, and video URL.
           Data is saved to a JSON file you can download.
         </p>
@@ -130,7 +130,7 @@ export default function YouTubeChannelDownload() {
             <div className="youtube-progress-bar">
               <div className="youtube-progress-fill" style={{ width: `${progress}%` }} />
             </div>
-            <p className="youtube-progress-label">Fetching metadata via YouTube Data API…</p>
+            <p className="youtube-progress-label">Fetching metadata via scraper…</p>
           </div>
         )}
 

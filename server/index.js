@@ -52,7 +52,7 @@ const GEMINI_API_KEY = stripEnvQuotes(process.env.REACT_APP_GEMINI_API_KEY || pr
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 const { scrapeYouTubeChannelData } = require('./youtubeScrape');
 
-// Assignment-compatible download route (YouTube Data API only; no yt-dlp)
+// Assignment-compatible download route (scraper only; no yt-dlp)
 app.post('/api/youtube/download-channel', async (req, res) => {
   try {
     const { channelUrl, maxVideos: rawMax } = req.body || {};
@@ -74,99 +74,6 @@ app.post('/api/youtube/download-channel', async (req, res) => {
             ? 400
             : 500;
     return res.status(status).json({ error: err.message || 'Failed to download channel data' });
-  }
-});
-
-// YouTube channel via Gemini + Google Search (no YouTube API key required)
-app.post('/api/youtube/channel-gemini', async (req, res) => {
-  try {
-    const { channelUrl, maxVideos: rawMax } = req.body;
-    const maxVideos = Math.min(100, Math.max(1, parseInt(rawMax || '10', 10)));
-    if (!channelUrl || typeof channelUrl !== 'string') return res.status(400).json({ error: 'channelUrl required' });
-    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured', code: 'GEMINI_KEY_NOT_CONFIGURED' });
-
-    const prompt = `Use Google Search to find the YouTube channel at this URL: ${channelUrl}
-
-For the channel, find up to ${maxVideos} of its most recent videos. For each video, search for and provide:
-- title
-- description (short summary if full not available)
-- transcript (if publicly available; otherwise null)
-- duration (ISO 8601 e.g. PT10M30S)
-- durationSeconds (number, optional)
-- releaseDate (ISO 8601 date string)
-- viewCount (number)
-- likeCount (number)
-- commentCount (number)
-- videoUrl (full https://www.youtube.com/watch?v=VIDEO_ID URL)
-- videoId (the id from the URL)
-- thumbnail (optional: https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg)
-
-Respond with ONLY a single valid JSON object, no other text or markdown. Use this exact structure:
-{"channelId":"","channelTitle":"","videos":[{"videoId":"","title":"","description":"","transcript":null,"duration":"","durationSeconds":null,"releaseDate":"","viewCount":0,"likeCount":0,"commentCount":0,"videoUrl":"","thumbnail":""}]}
-If you cannot find a channel or videos, return {"channelId":"","channelTitle":"","videos":[]}.`;
-
-    // Gemini does not allow responseMimeType (e.g. application/json) when using tools (google_search).
-    // We ask for JSON in the prompt and parse the text response.
-    const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
-    delete generationConfig.responseMimeType; // ensure never sent with tools
-
-    const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const genRes = await fetch(genUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig,
-      }),
-    });
-    const genData = await genRes.json();
-
-    if (!genRes.ok) {
-      const raw = genData.error;
-      const errMsg = raw?.message || (typeof raw === 'string' ? raw : JSON.stringify(raw || genData));
-      console.error('Gemini channel error:', genRes.status, errMsg);
-      return res.status(genRes.status >= 500 ? 503 : genRes.status === 400 ? 400 : 502).json({
-        error: errMsg,
-        code: genRes.status === 403 ? 'GEMINI_FORBIDDEN' : genRes.status === 400 ? 'GEMINI_BAD_REQUEST' : 'GEMINI_ERROR',
-      });
-    }
-
-    const text = genData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text || typeof text !== 'string') {
-      const blockReason = genData.candidates?.[0]?.finishReason || genData.promptFeedback?.blockReason;
-      const hint = blockReason ? ` (finishReason: ${blockReason})` : '';
-      return res.status(500).json({ error: `No text in Gemini response${hint}. The model may have been blocked or returned no content.` });
-    }
-
-    let data;
-    try {
-      const raw = text.trim();
-      const firstBrace = raw.indexOf('{');
-      if (firstBrace === -1) throw new Error('No JSON object in response');
-      let depth = 0;
-      let end = firstBrace;
-      for (let i = firstBrace; i < raw.length; i++) {
-        if (raw[i] === '{') depth++;
-        else if (raw[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-      }
-      const cleaned = raw.slice(firstBrace, end);
-      data = JSON.parse(cleaned);
-    } catch (e) {
-      console.error('Gemini channel JSON parse error:', e.message, text.slice(0, 500));
-      return res.status(500).json({ error: 'Could not parse channel data from response' });
-    }
-
-    if (!data.videos || !Array.isArray(data.videos)) {
-      data.videos = [];
-    }
-    data.channelId = data.channelId || '';
-    data.channelTitle = data.channelTitle || '';
-
-    res.json(data);
-  } catch (err) {
-    console.error('YouTube channel (Gemini) error:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch channel via Gemini' });
   }
 });
 
