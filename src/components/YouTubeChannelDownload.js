@@ -24,21 +24,21 @@ export default function YouTubeChannelDownload() {
       setResult(data);
       setProgress(100);
     } catch (err) {
-      const msg = err.message || '';
-      if (msg.includes('YouTube API key not configured') || msg.includes('YOUTUBE_API_KEY')) {
-        try {
-          setProgress(50);
-          const res = await fetch(SAMPLE_JSON_URL);
-          if (!res.ok) throw new Error('Sample not found');
-          const sample = await res.json();
-          setResult({ ...sample, _sampleFallback: true });
-          setError('');
-        } catch (sampleErr) {
-          setError('YouTube API key is not configured on the server. Add YOUTUBE_API_KEY in your backend environment (e.g. Render). Sample data could not be loaded.');
-          setResult(null);
+      const msg = (err.message || '').toLowerCase();
+      const isApiKeyError = msg.includes('youtube api key') || msg.includes('youtube_api_key') || msg.includes('not configured') || msg.includes('503') || msg.includes('service unavailable');
+      try {
+        setProgress(50);
+        const res = await fetch(SAMPLE_JSON_URL);
+        if (!res.ok) throw new Error('Sample not found');
+        const sample = await res.json();
+        setResult({ ...sample, _sampleFallback: true });
+        setError('');
+      } catch (sampleErr) {
+        if (isApiKeyError) {
+          setError('YouTube API key is not set on the server. Add YOUTUBE_API_KEY in your backend environment (e.g. Render). Sample data could not be loaded.');
+        } else {
+          setError(err.message || 'Download failed');
         }
-      } else {
-        setError(msg || 'Download failed');
         setResult(null);
       }
     } finally {

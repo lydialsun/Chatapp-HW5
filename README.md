@@ -54,11 +54,13 @@ After logging in, the app has two tabs: **Chat** and **YouTube Channel Download*
   **"YouTube API key not configured" even after adding the key to `.env`?**  
   If your app uses a **deployed backend** (e.g. `REACT_APP_API_URL=https://...onrender.com`), the browser sends requests to that server. That server does **not** read your local `.env`. Add `YOUTUBE_API_KEY` in the **host’s** environment (e.g. Render: Dashboard → your backend service → Environment → add `YOUTUBE_API_KEY` with your key, then Save/Redeploy). For **local** backend only: set `YOUTUBE_API_KEY` in `.env`, then restart the Node server (`npm run server`). To use the local backend from the React app, leave `REACT_APP_API_URL` blank or set it to `http://localhost:3001` and run both client and server.
 
+- **Sample data**: `public/veritasium_channel_data.json` contains 10 real Veritasium videos (real video IDs, titles, and working YouTube links). When the API key is not set, the app uses this sample so **play_video** and download work with real links.
+
 - **JSON in Chat**: Drag a channel JSON file (from the download tab or `public/veritasium_channel_data.json`) into the chat to load it into the conversation. The AI can then use the following tools (described in `public/prompt_chat.txt`):
 
   - **generateImage** — Generate an image from a text prompt and an optional anchor image (drag an image + ask to generate).
   - **plot_metric_vs_time** — Plot a numeric field (viewCount, likeCount, commentCount, durationSeconds) vs time; chart is shown in chat with enlarge and download.
-  - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title.
+  - **play_video** — Show a clickable card (title + thumbnail) that opens the video on YouTube; user can say "play the first video", "play most viewed", or a video title. Sample data uses real Veritasium video URLs.
   - **compute_stats_json** — Mean, median, std, min, max for any numeric field in the channel JSON.
 
 ## MongoDB Setup
