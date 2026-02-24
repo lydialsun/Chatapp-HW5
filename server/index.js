@@ -35,78 +35,100 @@ app.get('/', (req, res) => {
   `);
 });
 
-// YouTube channel (registered early so it's always available)
+// YouTube channel (uses shared fetch logic; all video URLs are real)
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
-function parseChannelIdOrHandle(url) {
-  if (!url || typeof url !== 'string') return null;
-  const u = url.trim();
-  const matchHandle = u.match(/youtube\.com\/@([^/?&#]+)/i);
-  if (matchHandle) return { type: 'handle', value: matchHandle[1] };
-  const matchChannel = u.match(/youtube\.com\/channel\/(UC[\w-]+)/i);
-  if (matchChannel) return { type: 'channelId', value: matchChannel[1] };
-  const matchCustom = u.match(/youtube\.com\/c\/([^/?&#]+)/i);
-  if (matchCustom) return { type: 'customUrl', value: matchCustom[1] };
-  if (/^UC[\w-]+$/i.test(u)) return { type: 'channelId', value: u };
-  return null;
-}
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const { fetchYouTubeChannelData } = require('./youtubeChannel');
+
 app.get('/api/youtube/channel', async (req, res) => {
   try {
     const channelUrl = req.query.url || req.query.channelUrl;
     const maxVideos = Math.min(100, Math.max(1, parseInt(req.query.maxVideos || '10', 10)));
     if (!channelUrl) return res.status(400).json({ error: 'url or channelUrl required' });
     if (!YOUTUBE_API_KEY) return res.status(503).json({ error: 'YouTube API key not configured (YOUTUBE_API_KEY)' });
-    const parsed = parseChannelIdOrHandle(channelUrl);
-    if (!parsed) return res.status(400).json({ error: 'Invalid channel URL. Use e.g. https://www.youtube.com/@veritasium' });
-    let channelId = null;
-    const base = 'https://www.googleapis.com/youtube/v3';
-    if (parsed.type === 'channelId') {
-      channelId = parsed.value;
-    } else {
-      const query = parsed.type === 'handle' ? `forHandle=${encodeURIComponent(parsed.value)}` : `forUsername=${encodeURIComponent(parsed.value)}`;
-      const listRes = await fetch(`${base}/channels?part=id,snippet,contentDetails&key=${YOUTUBE_API_KEY}&${query}`);
-      const listData = await listRes.json();
-      if (!listData.items || listData.items.length === 0) return res.status(404).json({ error: 'Channel not found' });
-      channelId = listData.items[0].id;
-    }
-    const channelRes = await fetch(`${base}/channels?part=snippet,contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`);
-    const channelData = await channelRes.json();
-    const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-    if (!uploadsId) return res.status(404).json({ error: 'Channel has no uploads playlist' });
-    const playlistRes = await fetch(`${base}/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=${maxVideos}&key=${YOUTUBE_API_KEY}`);
-    const playlistData = await playlistRes.json();
-    const videoIds = (playlistData.items || []).map((i) => i.contentDetails?.videoId).filter(Boolean);
-    if (videoIds.length === 0) {
-      return res.json({ channelId, channelTitle: channelData.items?.[0]?.snippet?.title || '', videos: [] });
-    }
-    const videosRes = await fetch(`${base}/videos?part=snippet,contentDetails,statistics&id=${videoIds.join(',')}&key=${YOUTUBE_API_KEY}`);
-    const videosData = await videosRes.json();
-    const parseDuration = (s) => {
-      if (!s || typeof s !== 'string') return null;
-      const match = s.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-      if (!match) return null;
-      const h = parseInt(match[1] || '0', 10);
-      const m = parseInt(match[2] || '0', 10);
-      const sec = parseInt(match[3] || '0', 10);
-      return h * 3600 + m * 60 + sec;
-    };
-    const videos = (videosData.items || []).map((v) => ({
-      videoId: v.id,
-      title: v.snippet?.title || '',
-      description: v.snippet?.description || '',
-      transcript: null,
-      duration: v.contentDetails?.duration || null,
-      durationSeconds: parseDuration(v.contentDetails?.duration),
-      releaseDate: v.snippet?.publishedAt || null,
-      viewCount: parseInt(v.statistics?.viewCount || '0', 10),
-      likeCount: parseInt(v.statistics?.likeCount || '0', 10),
-      commentCount: parseInt(v.statistics?.commentCount || '0', 10),
-      videoUrl: `https://www.youtube.com/watch?v=${v.id}`,
-      thumbnail: v.snippet?.thumbnails?.high?.url || v.snippet?.thumbnails?.default?.url || null,
-    }));
-    res.json({ channelId, channelTitle: channelData.items?.[0]?.snippet?.title || '', videos });
+    const data = await fetchYouTubeChannelData(channelUrl, maxVideos, YOUTUBE_API_KEY);
+    res.json(data);
   } catch (err) {
     console.error('YouTube channel error:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch channel' });
+    const status = err.message?.includes('not found') ? 404 : err.message?.includes('Invalid') ? 400 : 500;
+    res.status(status).json({ error: err.message || 'Failed to fetch channel' });
+  }
+});
+
+// YouTube channel via Gemini + Google Search (no YouTube API key required)
+app.post('/api/youtube/channel-gemini', async (req, res) => {
+  try {
+    const { channelUrl, maxVideos: rawMax } = req.body;
+    const maxVideos = Math.min(100, Math.max(1, parseInt(rawMax || '10', 10)));
+    if (!channelUrl || typeof channelUrl !== 'string') return res.status(400).json({ error: 'channelUrl required' });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: 'Gemini API key not configured (REACT_APP_GEMINI_API_KEY)' });
+
+    const prompt = `Use Google Search to find the YouTube channel at this URL: ${channelUrl}
+
+For the channel, find up to ${maxVideos} of its most recent videos. For each video, search for and provide:
+- title
+- description (short summary if full not available)
+- transcript (if publicly available; otherwise null)
+- duration (ISO 8601 e.g. PT10M30S)
+- durationSeconds (number, optional)
+- releaseDate (ISO 8601 date string)
+- viewCount (number)
+- likeCount (number)
+- commentCount (number)
+- videoUrl (full https://www.youtube.com/watch?v=VIDEO_ID URL)
+- videoId (the id from the URL)
+- thumbnail (optional: https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg)
+
+Respond with ONLY a single valid JSON object, no other text or markdown. Use this exact structure:
+{"channelId":"","channelTitle":"","videos":[{"videoId":"","title":"","description":"","transcript":null,"duration":"","durationSeconds":null,"releaseDate":"","viewCount":0,"likeCount":0,"commentCount":0,"videoUrl":"","thumbnail":""}]}
+If you cannot find a channel or videos, return {"channelId":"","channelTitle":"","videos":[]}.`;
+
+    const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const genRes = await fetch(genUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
+    const genData = await genRes.json();
+
+    if (!genRes.ok) {
+      const errMsg = genData.error?.message || JSON.stringify(genData.error || genData);
+      console.error('Gemini channel error:', genRes.status, errMsg);
+      return res.status(genRes.status >= 500 ? 503 : 400).json({ error: errMsg });
+    }
+
+    const text = genData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text || typeof text !== 'string') {
+      return res.status(500).json({ error: 'No text in Gemini response' });
+    }
+
+    let data;
+    try {
+      const cleaned = text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/m, '$1').trim();
+      data = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Gemini channel JSON parse error:', e.message, text.slice(0, 500));
+      return res.status(500).json({ error: 'Could not parse channel data from response' });
+    }
+
+    if (!data.videos || !Array.isArray(data.videos)) {
+      data.videos = [];
+    }
+    data.channelId = data.channelId || '';
+    data.channelTitle = data.channelTitle || '';
+
+    res.json(data);
+  } catch (err) {
+    console.error('YouTube channel (Gemini) error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch channel via Gemini' });
   }
 });
 
@@ -291,8 +313,6 @@ app.get('/api/messages', async (req, res) => {
 });
 
 // ── Image generation (Gemini) ──────────────────────────────────────────────
-
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
 app.post('/api/generate-image', async (req, res) => {
   try {

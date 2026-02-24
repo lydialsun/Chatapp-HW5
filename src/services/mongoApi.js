@@ -83,6 +83,14 @@ export const fetchYouTubeChannel = async (channelUrl, maxVideos = 10) => {
   return api(`/api/youtube/channel?url=${encodeURIComponent(channelUrl)}&maxVideos=${maxVideos}`);
 };
 
+/** Fetch channel video metadata via Gemini + Google Search (no YouTube API key). */
+export const fetchYouTubeChannelViaGemini = async (channelUrl, maxVideos = 10) => {
+  return api('/api/youtube/channel-gemini', {
+    method: 'POST',
+    body: JSON.stringify({ channelUrl, maxVideos }),
+  });
+};
+
 // ── Image generation ────────────────────────────────────────────────────────
 
 export const generateImage = async (prompt, anchorImageBase64 = null, anchorMimeType = 'image/png') => {

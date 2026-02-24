@@ -1,6 +1,20 @@
-import { useState } from 'react';
-import { fetchYouTubeChannel } from '../services/mongoApi';
+import { useState, useRef } from 'react';
+import { fetchYouTubeChannelViaGemini } from '../services/mongoApi';
 import './YouTubeChannelDownload.css';
+
+const SAMPLE_JSON_URL = '/veritasium_channel_data.json';
+
+function progressInterval(setProgress, done) {
+  const steps = [15, 30, 45, 60, 75, 90];
+  let i = 0;
+  const id = setInterval(() => {
+    if (done.current) return;
+    setProgress((p) => (p < 90 ? steps[i] ?? 90 : p));
+    i++;
+    if (i >= steps.length) clearInterval(id);
+  }, 600);
+  return () => clearInterval(id);
+}
 
 export default function YouTubeChannelDownload() {
   const [channelUrl, setChannelUrl] = useState('https://www.youtube.com/@veritasium');
@@ -9,33 +23,37 @@ export default function YouTubeChannelDownload() {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-
-  const SAMPLE_JSON_URL = '/veritasium_channel_data.json';
+  const doneRef = useRef(false);
 
   const handleDownload = async () => {
     setError('');
     setResult(null);
     setLoading(true);
     setProgress(10);
+    doneRef.current = false;
+    const clear = progressInterval(setProgress, doneRef);
+
     try {
-      setProgress(30);
-      const data = await fetchYouTubeChannel(channelUrl, Math.min(100, Math.max(1, maxVideos)));
-      setProgress(90);
-      setResult(data);
+      const max = Math.min(100, Math.max(1, maxVideos));
+      const data = await fetchYouTubeChannelViaGemini(channelUrl, max);
+      doneRef.current = true;
+      clear();
       setProgress(100);
+      setResult(data);
     } catch (err) {
+      doneRef.current = true;
+      clear();
       const msg = (err.message || '').toLowerCase();
-      const isApiKeyError = msg.includes('youtube api key') || msg.includes('youtube_api_key') || msg.includes('not configured') || msg.includes('503') || msg.includes('service unavailable');
+      const isGeminiError = msg.includes('gemini') || msg.includes('not configured') || msg.includes('503');
       try {
-        setProgress(50);
         const res = await fetch(SAMPLE_JSON_URL);
         if (!res.ok) throw new Error('Sample not found');
         const sample = await res.json();
         setResult({ ...sample, _sampleFallback: true });
         setError('');
       } catch (sampleErr) {
-        if (isApiKeyError) {
-          setError('YouTube API key is not set on the server. Add YOUTUBE_API_KEY in your backend environment (e.g. Render). Sample data could not be loaded.');
+        if (isGeminiError) {
+          setError('Gemini API key is not set on the server. Add REACT_APP_GEMINI_API_KEY in your backend environment. Sample data could not be loaded.');
         } else {
           setError(err.message || 'Download failed');
         }
@@ -62,7 +80,11 @@ export default function YouTubeChannelDownload() {
     <div className="youtube-download-page">
       <div className="youtube-download-card">
         <h2>YouTube Channel Download</h2>
-        <p className="youtube-download-desc">Enter a YouTube channel URL to download video metadata (title, description, duration, view count, like count, comment count, video URL).</p>
+        <p className="youtube-download-desc">
+          Enter a YouTube channel URL to download video metadata using Gemini and Google Search (no YouTube API key required).
+          Metadata includes: title, description, transcript (if available), duration, release date, view count, like count, comment count, and video URL.
+          Data is saved to a JSON file you can download.
+        </p>
 
         <div className="youtube-download-form">
           <label>
@@ -96,6 +118,7 @@ export default function YouTubeChannelDownload() {
             <div className="youtube-progress-bar">
               <div className="youtube-progress-fill" style={{ width: `${progress}%` }} />
             </div>
+            <p className="youtube-progress-label">Fetching metadata via Gemini and Google Search…</p>
           </div>
         )}
 
@@ -104,7 +127,9 @@ export default function YouTubeChannelDownload() {
         {result && !loading && (
           <div className="youtube-result">
             {result._sampleFallback && (
-              <p className="youtube-sample-notice">YouTube API key not set on server; showing sample Veritasium data. You can still use this in Chat or download it.</p>
+              <p className="youtube-sample-notice">
+                Gemini API key not set on server; showing sample Veritasium data. You can still use this in Chat or download it.
+              </p>
             )}
             <p><strong>{result.channelTitle}</strong> — {result.videos?.length ?? 0} videos</p>
             <button type="button" onClick={handleSaveFile} className="youtube-save-btn">

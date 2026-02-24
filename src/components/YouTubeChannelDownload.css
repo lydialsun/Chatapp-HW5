@@ -70,6 +70,12 @@
   margin-top: 1rem;
 }
 
+.youtube-progress-label {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b6560);
+}
+
 .youtube-progress-bar {
   height: 8px;
   background: rgba(156, 175, 136, 0.2);

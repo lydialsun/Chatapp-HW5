@@ -29,10 +29,10 @@ Create a `.env` file in the project root with:
 
 | Variable | Required | Where used | Description |
 |----------|----------|------------|-------------|
-| `REACT_APP_GEMINI_API_KEY` | Yes | Frontend (baked in at build) | Google Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
+| `REACT_APP_GEMINI_API_KEY` | Yes | Frontend + Backend | Google Gemini API key. Used for chat, image generation, and **YouTube Channel Download via Google Search**. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
 | `REACT_APP_MONGODB_URI` | Yes | Backend | MongoDB Atlas connection string. Format: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
 | `REACT_APP_API_URL` | Production only | Frontend (baked in at build) | Full URL of the backend, e.g. `https://your-backend.onrender.com`. **No trailing slash.** Leave blank for local dev (proxy handles it). |
-| `YOUTUBE_API_KEY` | For YouTube tab | Backend | Google YouTube Data API v3 key. Required for the "YouTube Channel Download" tab. Get one in [Google Cloud Console](https://console.cloud.google.com/apis/credentials). |
+| `YOUTUBE_API_KEY` | Optional | Backend + scripts | Google YouTube Data API v3 key. Optional; used only for `GET /api/youtube/channel` and `scripts/fetch-channel.js` / `fetch-veritasium.js`. The in-app **Download Channel Data** uses Gemini + Google Search and does **not** require this key. |
 
 The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB connection string if you prefer those names.
 
@@ -49,10 +49,9 @@ REACT_APP_MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/
 
 After logging in, the app has two tabs: **Chat** and **YouTube Channel Download**.
 
-- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set max videos (1–100, default 10), and click **Download Channel Data**. Metadata (title, description, duration, release date, view/like/comment counts, video URL, thumbnail) is fetched and can be downloaded as a JSON file. A progress bar is shown while downloading. If the backend does not have `YOUTUBE_API_KEY` set, the app **falls back to sample data** (`public/veritasium_channel_data.json`) so the download still succeeds and you can use the data in Chat or download the JSON. To fetch real data, the **backend** must have `YOUTUBE_API_KEY` set (see below). To refresh the sample file with live data: `YOUTUBE_API_KEY=your_key node scripts/fetch-veritasium.js`.
+- **YouTube Channel Download**: Enter a channel URL (e.g. `https://www.youtube.com/@veritasium`), set **max videos** (1–100, default 10), and click **Download Channel Data**. The app uses **Gemini with Google Search** (no YouTube API key required) to fetch metadata: title, description, transcript (if available), duration, release date, view count, like count, comment count, and video URL. A **progress bar** is shown while downloading; when complete, the data can be **downloaded as a JSON file**. If the backend does not have a Gemini API key set, the app falls back to sample data (`public/veritasium_channel_data.json`). Backend endpoint: `POST /api/youtube/channel-gemini` with body `{ channelUrl, maxVideos }`.
 
-  **"YouTube API key not configured" even after adding the key to `.env`?**  
-  If your app uses a **deployed backend** (e.g. `REACT_APP_API_URL=https://...onrender.com`), the browser sends requests to that server. That server does **not** read your local `.env`. Add `YOUTUBE_API_KEY` in the **host’s** environment (e.g. Render: Dashboard → your backend service → Environment → add `YOUTUBE_API_KEY` with your key, then Save/Redeploy). For **local** backend only: set `YOUTUBE_API_KEY` in `.env`, then restart the Node server (`npm run server`). To use the local backend from the React app, leave `REACT_APP_API_URL` blank or set it to `http://localhost:3001` and run both client and server.
+  **Optional — YouTube Data API:** For direct API fetching (e.g. `GET /api/youtube/channel` or CLI scripts), set `YOUTUBE_API_KEY` in the backend environment. To refresh the sample file with live data: `YOUTUBE_API_KEY=your_key node scripts/fetch-veritasium.js`. To fetch any channel to a JSON file: `YOUTUBE_API_KEY=your_key node scripts/fetch-channel.js "<channel_url>" [maxVideos] [output_file]`. The API and scripts use `server/youtubeChannel.js` (parse channel URL, fetch via YouTube Data API, real video IDs and URLs).
 
 - **Sample data**: `public/veritasium_channel_data.json` contains 10 real Veritasium videos (real video IDs, titles, and working YouTube links). When the API key is not set, the app uses this sample so **play_video** and download work with real links.
 
