@@ -57,6 +57,7 @@ const parseCSV = (text) => {
 function normalizeChannelVideos(videos) {
   if (!Array.isArray(videos)) return [];
   const mapped = videos.map((v) => ({
+    ...v,
     videoId: v.videoId ?? v.video_id,
     title: v.title,
     description: v.description,
@@ -69,7 +70,6 @@ function normalizeChannelVideos(videos) {
     commentCount: v.commentCount ?? v.comment_count,
     videoUrl: v.videoUrl ?? v.video_url,
     thumbnail: v.thumbnail ?? v.thumbnail_url,
-    ...v,
   }));
   const { videos: normalized, normalizedCount, invalidCount } = normalizeVideosReleaseDates(mapped);
   console.warn(`[channel-json] normalized release dates: ok=${normalizedCount}, invalid=${invalidCount}`);

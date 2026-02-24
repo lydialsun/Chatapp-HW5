@@ -122,8 +122,11 @@ function resolveNumericField(videos, name) {
 function getRawDate(video) {
   return (
     video?.release_date ??
-    video?.releaseDate ??
     video?.publishedAt ??
+    video?.publishDate ??
+    video?.uploadDate ??
+    video?.relative_published ??
+    video?.releaseDate ??
     video?.published_at ??
     null
   );
@@ -225,16 +228,51 @@ export async function executeYouTubeTool(toolName, args, context) {
         let normalizedMsCount = 0;
         let publishedPresent = 0;
         let releaseDatePresent = 0;
+        let relativePublishedPresent = 0;
+        const rawDateSourceCounts = {
+          release_date: 0,
+          publishedAt: 0,
+          publishDate: 0,
+          uploadDate: 0,
+          relative_published: 0,
+          unknown: 0,
+        };
         const invalidDates = [];
 
         for (const v of videos) {
-          const publishedRaw = v?.publishedAt ?? v?.published_at ?? null;
+          const publishedRaw = v?.publishedAt ?? v?.publishDate ?? v?.uploadDate ?? v?.published_at ?? null;
           const releaseRaw = v?.release_date ?? v?.releaseDate ?? null;
+          const relativePublishedRaw = v?.relative_published ?? null;
           if (publishedRaw) publishedPresent++;
           if (releaseRaw) releaseDatePresent++;
+          if (relativePublishedRaw) relativePublishedPresent++;
 
-          const rawDate = getRawDate(v);
-          let ms = normalizeDateToMs(rawDate, now);
+          let rawDate = null;
+          let rawDateSource = 'unknown';
+          if (v?.release_date != null) {
+            rawDate = v.release_date;
+            rawDateSource = 'release_date';
+          } else if (v?.publishedAt != null) {
+            rawDate = v.publishedAt;
+            rawDateSource = 'publishedAt';
+          } else if (v?.publishDate != null) {
+            rawDate = v.publishDate;
+            rawDateSource = 'publishDate';
+          } else if (v?.uploadDate != null) {
+            rawDate = v.uploadDate;
+            rawDateSource = 'uploadDate';
+          } else if (v?.relative_published != null) {
+            rawDate = v.relative_published;
+            rawDateSource = 'relative_published';
+          } else {
+            rawDate = getRawDate(v);
+          }
+          rawDateSourceCounts[rawDateSource] = (rawDateSourceCounts[rawDateSource] || 0) + 1;
+
+          let ms = Number.isFinite(v?.release_date_ms) ? v.release_date_ms : null;
+          if (!Number.isFinite(ms)) {
+            ms = normalizeDateToMs(rawDate, now);
+          }
           if (!Number.isFinite(ms) && Number.isFinite(v?.release_date_ms)) {
             ms = v.release_date_ms;
           }
@@ -255,6 +293,9 @@ export async function executeYouTubeTool(toolName, args, context) {
           }
 
           normalizedMsCount++;
+          v.release_date_ms = ms;
+          v.release_date_iso = new Date(ms).toISOString();
+          v.release_date_raw = rawDate ?? null;
           const value = getMetricValue(v, field);
           if (value === null) {
             skippedInvalidMetric++;
@@ -277,7 +318,7 @@ export async function executeYouTubeTool(toolName, args, context) {
 
         if (points.length < 2) {
           return {
-            error: `Not enough valid dates to plot. total=${videos.length}, publishedAt_present=${publishedPresent}, release_date_present=${releaseDatePresent}, normalized_ms=${normalizedMsCount}, skipped_invalid_date=${skippedInvalidDate}, skipped_invalid_metric=${skippedInvalidMetric}, invalid_date_examples=${JSON.stringify(invalidDates)}, date_keys_tried=release_date,releaseDate,publishedAt,published_at`,
+            error: `Not enough valid dates to plot. total=${videos.length}, publishedAt_present=${publishedPresent}, release_date_present=${releaseDatePresent}, relative_published_present=${relativePublishedPresent}, normalized_ms=${normalizedMsCount}, skipped_invalid_date=${skippedInvalidDate}, skipped_invalid_metric=${skippedInvalidMetric}, raw_date_source=${JSON.stringify(rawDateSourceCounts)}, invalid_date_examples=${JSON.stringify(invalidDates)}, date_keys_tried=release_date,publishedAt,publishDate,uploadDate,relative_published`,
           };
         }
 

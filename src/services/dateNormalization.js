@@ -8,6 +8,7 @@ export function normalizeReleaseDate(raw, now = new Date()) {
     .toLowerCase()
     .replace(/^streamed\s+/, '')
     .replace(/^premiered\s+/, '')
+    .replace(/^uploaded\s+/, '')
     .trim();
 
   const parsed = Date.parse(s);
@@ -32,37 +33,33 @@ export function normalizeReleaseDate(raw, now = new Date()) {
   return { iso: d.toISOString(), ms: d.getTime() };
 }
 
+function getRawDateWithSource(video) {
+  if (video?.release_date != null) return { raw: video.release_date, source: 'release_date' };
+  if (video?.publishedAt != null) return { raw: video.publishedAt, source: 'publishedAt' };
+  if (video?.publishDate != null) return { raw: video.publishDate, source: 'publishDate' };
+  if (video?.uploadDate != null) return { raw: video.uploadDate, source: 'uploadDate' };
+  if (video?.relative_published != null) return { raw: video.relative_published, source: 'relative_published' };
+  if (video?.published_at != null) return { raw: video.published_at, source: 'published_at' };
+  if (video?.releaseDate != null) return { raw: video.releaseDate, source: 'releaseDate' };
+  return { raw: null, source: null };
+}
+
 export function normalizeVideosReleaseDates(videos, now = new Date()) {
   if (!Array.isArray(videos)) return { videos: [], normalizedCount: 0, invalidCount: 0 };
   let normalizedCount = 0;
   let invalidCount = 0;
   const next = videos.map((v) => {
-    const publishedRaw = typeof v.publishedAt === 'string' ? v.publishedAt.trim() : '';
-    const releaseRaw = v.release_date ?? v.releaseDate ?? null;
-
-    // Priority:
-    // 1) parseable publishedAt
-    // 2) release_date absolute/relative
-    let iso = null;
-    let ms = null;
-    if (publishedRaw) {
-      const parsedPublished = Date.parse(publishedRaw);
-      if (Number.isFinite(parsedPublished)) {
-        ms = parsedPublished;
-        iso = new Date(parsedPublished).toISOString();
-      }
-    }
-    if (!Number.isFinite(ms)) {
-      const normalized = normalizeReleaseDate(releaseRaw, now);
-      iso = normalized.iso;
-      ms = normalized.ms;
-    }
+    const { raw, source } = getRawDateWithSource(v);
+    const normalized = normalizeReleaseDate(raw, now);
+    const iso = normalized.iso;
+    const ms = normalized.ms;
 
     if (iso && Number.isFinite(ms)) normalizedCount++;
     else invalidCount++;
     return {
       ...v,
-      release_date_raw: releaseRaw ?? null,
+      release_date_raw: raw ?? null,
+      release_date_source: source,
       release_date_iso: iso,
       release_date_ms: ms,
     };
