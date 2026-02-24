@@ -1,4 +1,4 @@
-const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/+$/, '');
+const API_BASE = (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
 console.log('Using API_BASE:', API_BASE);
 
 function buildApiUrl(path) {

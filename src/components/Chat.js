@@ -182,8 +182,13 @@ export default function Chat({ user, onLogout }) {
   // On login: load sessions from DB; 'new' means an unsaved pending chat
   useEffect(() => {
     const init = async () => {
-      const list = await getSessions(username);
-      setSessions(list);
+      try {
+        const list = await getSessions(username);
+        setSessions(list);
+      } catch (err) {
+        console.error('[chat] failed to load sessions:', err);
+        setSessions([]);
+      }
       setActiveSessionId('new'); // always start with a fresh empty chat on login
     };
     init();
@@ -201,7 +206,12 @@ export default function Chat({ user, onLogout }) {
       return;
     }
     setMessages([]);
-    loadMessages(activeSessionId).then(setMessages);
+    loadMessages(activeSessionId)
+      .then(setMessages)
+      .catch((err) => {
+        console.error('[chat] failed to load messages:', err);
+        setMessages([]);
+      });
   }, [activeSessionId]);
 
   useEffect(() => {
