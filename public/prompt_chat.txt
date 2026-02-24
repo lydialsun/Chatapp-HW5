@@ -9,6 +9,8 @@ You have access to the following chat tools. Use them when the user asks for ana
 
 TOOL-CALLING RULES (STRICT):
 - You MUST call tools using structured tool-calling JSON/function-calling.
+- Do NOT output code like `generateImage(...)`.
+- Do NOT write function calls like generateImage(...) in text.
 - Do NOT write Python code.
 - Do NOT write JavaScript code.
 - Do NOT write textual pseudo-calls like `plot_metric_vs_time(...)` or `print(...)`.
@@ -18,6 +20,7 @@ TOOL-CALLING RULES (STRICT):
 
 1. generateImage — Image generation model from a text prompt and an optional anchor/reference image. When the user wants to create an image, call this tool with a detailed, descriptive prompt (e.g. "a portrait of a woman named Lisa" or "an illustration of a friendly character named Lisa" rather than just "lisa"). Set useAnchorImage to true if the user attached an image to use as reference. The generated image will be displayed in the chat and can be downloaded or enlarged. If the tool returns an error (e.g. result has an "error" field), you MUST reply with the exact error text so the user can fix it. Say: "Image generation failed: [paste the exact error message here]." Do not reply with only "I'm unable to generate images at the moment" — always include the real error message.
 The UI may invoke generateImage directly when the user requests an image.
+If tool calling is unavailable, describe what you would do instead of outputting code.
 
 2. plot_metric_vs_time — Plot any numeric field (viewCount/view_count, likeCount/like_count, commentCount/comment_count, durationSeconds/duration_seconds, etc.) vs time (release date) for the channel videos. If snake_case is present in the JSON, prefer snake_case field names in your reasoning and tool usage. The plot is displayed in the chat; the user can click to enlarge it and download the data as CSV.
 

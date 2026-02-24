@@ -1,4 +1,4 @@
-const API_BASE = (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/+$/, '');
 
 function buildApiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -103,15 +103,28 @@ export const fetchYouTubeChannelData = async (channelUrl, maxVideos = 10) => {
 
 // ── Image generation ────────────────────────────────────────────────────────
 
-export const generateImage = async (prompt, anchorImageBase64 = null, anchorMimeType = 'image/png') => {
+export const generateImage = async (input, anchorImageBase64 = null, anchorMimeType = 'image/png') => {
+  const payload =
+    typeof input === 'object' && input !== null
+      ? {
+          prompt: input.prompt || '',
+          anchorImageBase64: input.anchorImageBase64 ?? null,
+          anchorMimeType: input.anchorMimeType || 'image/png',
+        }
+      : {
+          prompt: input || '',
+          anchorImageBase64,
+          anchorMimeType,
+        };
   const controller = new AbortController();
   const timeoutMs = 70000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API_BASE}/api/tools/generateImage`.replace(/(?<!:)\/\/+/g, '/'), {
+    const url = `${API_BASE}/api/tools/generateImage`.replace(/(?<!:)\/\/+/g, '/');
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, anchorImageBase64, anchorMimeType }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     const text = await res.text();
@@ -122,7 +135,7 @@ export const generateImage = async (prompt, anchorImageBase64 = null, anchorMime
       throw new Error('Invalid JSON from server');
     }
     if (!res.ok) {
-      throw new Error(data?.error || 'Image generation failed');
+      throw new Error(data?.error || `HTTP ${res.status}`);
     }
     if (!data?.imageBase64) {
       throw new Error('Image generation failed: no image in response');

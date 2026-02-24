@@ -283,11 +283,8 @@ async function handleGenerateImage(req, res) {
       });
     }
 
-    const PRIMARY_MODEL = 'gemini-2.5-flash-image';
-    const FALLBACK_MODEL = 'gemini-3-pro-image-preview';
+    const MODELS = ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview'];
     const backendTimeoutMs = Math.max(10000, parseInt(process.env.IMAGE_TIMEOUT_MS || '65000', 10));
-    const isTimeout = (e) => /timeout/i.test(String(e?.message || ''));
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const runModelOnce = async (modelName) => Promise.race([
       ai.models.generateContent({
@@ -302,26 +299,22 @@ async function handleGenerateImage(req, res) {
       }),
     ]);
 
-    const runWithRetry = async (modelName) => {
+    let response = null;
+    let modelUsed = null;
+    let lastErr = null;
+    console.log(`[generateImage] start ${startedIso} models=${MODELS.join(',')}`);
+    for (const modelName of MODELS) {
       try {
-        return await runModelOnce(modelName);
+        response = await runModelOnce(modelName);
+        modelUsed = modelName;
+        break;
       } catch (e) {
-        if (!isTimeout(e)) throw e;
-        await sleep(250 + Math.floor(Math.random() * 300));
-        return runModelOnce(modelName);
+        lastErr = e;
+        console.warn(`[generateImage] model failed model=${modelName} err=${e?.message || e}`);
       }
-    };
-
-    let response;
-    let modelUsed = PRIMARY_MODEL;
-    console.log(`[generateImage] start ${startedIso} model=${PRIMARY_MODEL}`);
-    try {
-      response = await runWithRetry(PRIMARY_MODEL);
-    } catch (primaryErr) {
-      if (!isTimeout(primaryErr)) throw primaryErr;
-      modelUsed = FALLBACK_MODEL;
-      console.warn(`[generateImage] primary timed out, fallback=${FALLBACK_MODEL}`);
-      response = await runModelOnce(FALLBACK_MODEL);
+    }
+    if (!response || !modelUsed) {
+      throw lastErr || new Error('Image generation failed');
     }
     console.log(`[generateImage] gemini response received in ${Date.now() - startedAt}ms model=${modelUsed}`);
 
@@ -340,7 +333,7 @@ async function handleGenerateImage(req, res) {
     if (typeof bytes === 'string') imageBase64 = bytes;
     else imageBase64 = Buffer.from(bytes).toString('base64');
     console.log(`[generateImage] success in ${Date.now() - startedAt}ms`);
-    return res.json({ imageBase64, mimeType: 'image/png', modelUsed, elapsedMs: Date.now() - startedAt });
+    return res.json({ imageBase64, mimeType: 'image/png', modelUsed });
   } catch (err) {
     console.error('[generateImage] error:', err);
     const msg = err?.message || 'Image generation failed';

@@ -547,13 +547,6 @@ ${sessionSummary}${slimCsvBlock}
       // Store display text only — base64 is never persisted
       await saveMessage(sessionId, 'user', userContent, capturedImages.length ? capturedImages : null);
 
-      const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
-
-      // History: plain display text only — session summary handles CSV context on every message
-      const history = messages
-        .filter((m) => m.role === 'user' || m.role === 'model')
-        .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
-
       const assistantId = `a-${Date.now()}`;
       setMessages((m) => [
         ...m,
@@ -571,11 +564,11 @@ ${sessionSummary}${slimCsvBlock}
       if (useImageTools) {
         const anchorImage = capturedImages[0];
         const result = await withTimeout(
-          apiGenerateImage(
-            text || 'Generate an image.',
-            anchorImage?.data || null,
-            anchorImage?.mimeType || 'image/png'
-          ),
+          apiGenerateImage({
+            prompt: text || 'Generate an image.',
+            anchorImageBase64: anchorImage?.data || null,
+            anchorMimeType: anchorImage?.mimeType || 'image/png',
+          }),
           60000
         );
         fullContent = 'Here you go.';
@@ -595,13 +588,29 @@ ${sessionSummary}${slimCsvBlock}
               : msg
           )
         );
+        await saveMessage(
+          sessionId,
+          'model',
+          fullContent,
+          null,
+          toolCharts.length ? toolCharts : null,
+          null
+        );
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, messageCount: s.messageCount + 2 } : s))
+        );
+        inputRef.current?.focus();
+        return;
       } else if (useYouTubeTools) {
+        // History: plain display text only — session summary handles CSV context on every message
+        const history = messages
+          .filter((m) => m.role === 'user' || m.role === 'model')
+          .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
         const anchorImage = capturedImages[0];
         const youtubeContext = {
           videos,
           anchorImageBase64: anchorImage?.data || null,
           anchorMimeType: anchorImage?.mimeType || 'image/png',
-          generateImageFn: (prompt, anchorBase64, mimeType) => apiGenerateImage(prompt, anchorBase64, mimeType),
         };
         const { text: answer, charts: returnedCharts, toolCalls: returnedCalls } = await chatWithYouTubeTools(
           history,
@@ -624,6 +633,9 @@ ${sessionSummary}${slimCsvBlock}
           )
         );
       } else if (useTools) {
+        const history = messages
+          .filter((m) => m.role === 'user' || m.role === 'model')
+          .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
         console.log('[Chat] useTools=true | rows:', sessionCsvRows.length, '| headers:', sessionCsvHeaders);
         const { text: answer, charts: returnedCharts, toolCalls: returnedCalls } = await chatWithCsvTools(
           history,
@@ -647,6 +659,10 @@ ${sessionSummary}${slimCsvBlock}
           )
         );
       } else {
+        const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
+        const history = messages
+          .filter((m) => m.role === 'user' || m.role === 'model')
+          .map((m) => ({ role: m.role, content: m.content || messageText(m) }));
         // ── Streaming path: plain text + search grounding (no code execution) ─
         for await (const chunk of streamChat(history, promptForGemini, imageParts)) {
           if (abortRef.current) break;

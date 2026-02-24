@@ -245,5 +245,9 @@ export const chatWithYouTubeTools = async (history, newMessage, executeFn) => {
     ).response;
   }
 
-  return { text: response.text(), charts, toolCalls };
+  let text = response.text();
+  if (!toolCalls.length && /generateImage\s*\(/i.test(text || '')) {
+    text = 'Generating image…';
+  }
+  return { text, charts, toolCalls };
 };
